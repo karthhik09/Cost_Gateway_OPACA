@@ -3,7 +3,9 @@ package de.gtarc.opaca.costgateway.controller;
 import com.fasterxml.jackson.databind.JsonNode;
 import de.gtarc.opaca.costgateway.model.GatewayResponse;
 import de.gtarc.opaca.costgateway.model.TokenUsage;
+import de.gtarc.opaca.costgateway.service.BudgetSharingService;
 import de.gtarc.opaca.costgateway.service.ModelRoutingService;
+import de.gtarc.opaca.costgateway.service.TokenCostPredictor;
 import de.gtarc.opaca.costgateway.service.TokenTrackingService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -27,21 +29,28 @@ import java.util.Map;
  * the host from OPACA (port 8000) to the gateway (port 8080) with zero
  * other changes.
  *
- * <p>Before forwarding, the gateway:
+ * <p>Before forwarding, the gateway now applies three novelty features:
  * <ol>
- *   <li>Checks the agent's current token budget usage from Redis.</li>
- *   <li>Routes to the appropriate tier (PRIMARY / ECONOMY / FALLBACK).</li>
- *   <li>Records token usage and cost after each successful call.</li>
- *   <li>Returns HTTP 429 when the budget is hard-exhausted (>= 150% of limit).</li>
+ *   <li><b>Predictive Token Costing (Feature 3)</b> — estimates tokens
+ *       pre-flight and pre-emptively rejects requests guaranteed to exceed
+ *       the remaining budget.</li>
+ *   <li><b>Dynamic Budget Sharing (Feature 2)</b> — if the agent is starving
+ *       (approaching or past the hard-reject threshold), attempts to borrow
+ *       tokens from the global shared pool before issuing HTTP 429.</li>
+ *   <li><b>Complexity-Aware Routing (Feature 1)</b> — integrated inside
+ *       {@link ModelRoutingService}: simple prompts are fast-tracked to
+ *       Tier 2, preserving Tier-1 quota for complex reasoning tasks.</li>
  * </ol>
  *
  * Response headers on every 2xx call:
  * <ul>
- *   <li>{@code X-Gateway-Tier}   — PRIMARY | ECONOMY | FALLBACK</li>
- *   <li>{@code X-Gateway-Model}  — model identifier used</li>
- *   <li>{@code X-Tokens-This-Call} — tokens consumed by this call</li>
- *   <li>{@code X-Tokens-Window}  — cumulative tokens in current budget window</li>
- *   <li>{@code X-Budget-Usage-Pct} — usage percentage (e.g. 82.3)</li>
+ *   <li>{@code X-Gateway-Tier}         — PRIMARY | ECONOMY | FALLBACK</li>
+ *   <li>{@code X-Gateway-Model}        — model identifier used</li>
+ *   <li>{@code X-Tokens-This-Call}     — tokens consumed by this call</li>
+ *   <li>{@code X-Tokens-Window}        — cumulative tokens in current budget window</li>
+ *   <li>{@code X-Budget-Usage-Pct}     — usage percentage (e.g. 82.3)</li>
+ *   <li>{@code X-Predicted-Tokens}     — pre-flight token estimate</li>
+ *   <li>{@code X-Pool-Size}            — current global shared pool size</li>
  * </ul>
  */
 @Slf4j
@@ -53,6 +62,8 @@ public class GatewayController {
 
     private final ModelRoutingService router;
     private final TokenTrackingService tracker;
+    private final TokenCostPredictor predictor;
+    private final BudgetSharingService budgetSharing;
 
     // ── Endpoints ──────────────────────────────────────────────────────────────
 
@@ -65,6 +76,9 @@ public class GatewayController {
             @ApiResponse(responseCode = "429", description = "Token budget exhausted — retry after window reset",
                 content = @Content(examples = @ExampleObject(
                     value = "{\"errorCode\":\"TOKEN_BUDGET_EXCEEDED\",\"error\":\"Token budget exhausted for agent 'default'\",\"tier\":\"REJECTED\"}"))),
+            @ApiResponse(responseCode = "422", description = "Pre-emptive rejection — predicted tokens exceed remaining budget",
+                content = @Content(examples = @ExampleObject(
+                    value = "{\"errorCode\":\"PREDICTED_BUDGET_EXCEEDED\",\"error\":\"Predicted 1200 tokens but only 800 remain\",\"tier\":\"REJECTED\"}"))),
             @ApiResponse(responseCode = "502", description = "All tiers failed")
         }
     )
@@ -104,6 +118,48 @@ public class GatewayController {
             long budget      = tracker.getTokenBudget(effectiveAgent);
             long resetIn     = tracker.getBudgetResetInSeconds(effectiveAgent);
 
+            // ── Feature 3: Predictive Token Costing ───────────────────────────
+            // Estimate how many tokens this request will use BEFORE calling the
+            // upstream API.  Reject pre-emptively if the estimate exceeds the
+            // remaining budget (with a 10% headroom to avoid over-rejection).
+            TokenCostPredictor.PredictionResult prediction =
+                    predictor.shouldReject(effectiveAgent, used, budget, action, parameters);
+
+            if (prediction.shouldReject) {
+                log.warn("PRE-EMPTIVE REJECT agent={} predicted={} remaining={}",
+                        effectiveAgent, prediction.predictedTokens, prediction.remainingBudget);
+                return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
+                        .header("X-Predicted-Tokens",  String.valueOf(prediction.predictedTokens))
+                        .header("X-Remaining-Budget",  String.valueOf(prediction.remainingBudget))
+                        .header("Retry-After",          String.valueOf(resetIn))
+                        .header("X-Gateway-Tier",       "REJECTED")
+                        .body(GatewayResponse.builder()
+                                .errorCode("PREDICTED_BUDGET_EXCEEDED")
+                                .error("Predicted " + prediction.predictedTokens + " tokens but only "
+                                        + prediction.remainingBudget + " remain in budget for agent '"
+                                        + effectiveAgent + "'. Estimated cost: $"
+                                        + String.format("%.6f", prediction.predictedCostUsd)
+                                        + ". Resets in " + resetIn + "s.")
+                                .agentId(effectiveAgent)
+                                .tier("REJECTED")
+                                .build());
+            }
+
+            // ── Feature 2: Dynamic Budget Sharing — borrow if starving ─────────
+            // If the agent is approaching the hard-reject threshold, try to
+            // borrow from the global shared pool before issuing HTTP 429.
+            if (usagePct >= 150.0) {
+                long borrowed = budgetSharing.tryBorrow(effectiveAgent);
+                if (borrowed > 0) {
+                    // Grant borrowed tokens by raising the agent's budget temporarily
+                    tracker.setTokenBudget(effectiveAgent, budget + borrowed);
+                    budget   = budget + borrowed;
+                    usagePct = tracker.getBudgetUsagePercent(effectiveAgent);
+                    log.info("Agent [{}] borrowed {} tokens from pool — new budget={} usage={}%",
+                            effectiveAgent, borrowed, budget, String.format("%.1f", usagePct));
+                }
+            }
+
             // Hard stop at 150% over budget — return 429
             if (usagePct >= 150.0) {
                 tracker.recordThrottle(effectiveAgent);
@@ -114,17 +170,23 @@ public class GatewayController {
                         .header("X-Gateway-Tier",     "REJECTED")
                         .header("X-Tokens-Window",    String.valueOf(used))
                         .header("X-Budget-Usage-Pct", String.format("%.1f", usagePct))
+                        .header("X-Pool-Size",         String.valueOf(budgetSharing.getPoolSize()))
                         .body(GatewayResponse.builder()
                                 .errorCode("TOKEN_BUDGET_EXCEEDED")
                                 .error("Token budget exhausted for agent '" + effectiveAgent
                                         + "' (used " + used + " / " + budget + " tokens). "
-                                        + "Resets in " + resetIn + "s.")
+                                        + "Pool also exhausted. Resets in " + resetIn + "s.")
                                 .agentId(effectiveAgent)
                                 .tier("REJECTED")
                                 .build());
             }
 
-            // Route to appropriate tier
+            // ── Feature 2 (continued): Donation on idle ────────────────────────
+            // If the agent is well within budget, donate surplus to the pool.
+            // We call this before routing so idle agents contribute immediately.
+            budgetSharing.tryDonate(effectiveAgent, used, budget);
+
+            // ── Route to appropriate tier (Feature 1 integrated in router) ─────
             GatewayResponse response = router.routeInvoke(action, parameters, agentId, timeout);
             response.setAgentId(effectiveAgent);
 
@@ -144,6 +206,8 @@ public class GatewayController {
                     .header("X-Tokens-This-Call",    tu != null ? String.valueOf(tu.getTotalTokens()) : "0")
                     .header("X-Tokens-Window",       String.valueOf(newUsed))
                     .header("X-Budget-Usage-Pct",    String.format("%.1f", newPct))
+                    .header("X-Predicted-Tokens",    String.valueOf(prediction.predictedTokens))
+                    .header("X-Pool-Size",            String.valueOf(budgetSharing.getPoolSize()))
                     .body(response);
 
         } catch (Exception e) {

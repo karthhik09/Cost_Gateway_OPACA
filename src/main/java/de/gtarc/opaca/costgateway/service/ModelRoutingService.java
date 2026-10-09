@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import de.gtarc.opaca.costgateway.config.GatewayConfig;
 import de.gtarc.opaca.costgateway.model.GatewayResponse;
 import de.gtarc.opaca.costgateway.model.TokenUsage;
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import lombok.extern.slf4j.Slf4j;
@@ -41,6 +42,7 @@ public class ModelRoutingService {
 
     private final GatewayConfig config;
     private final TokenTrackingService tracker;
+    private final PromptComplexityAnalyzer complexityAnalyzer;
     private final WebClient opacaClient;
     private final WebClient groqClient;
     private final WebClient geminiClient;
@@ -50,18 +52,20 @@ public class ModelRoutingService {
     public ModelRoutingService(
             GatewayConfig config,
             TokenTrackingService tracker,
+            PromptComplexityAnalyzer complexityAnalyzer,
             @Qualifier("opacaClient")  WebClient opacaClient,
             @Qualifier("groqClient")   WebClient groqClient,
             @Qualifier("geminiClient") WebClient geminiClient,
             ObjectMapper objectMapper,
             MeterRegistry meters) {
-        this.config       = config;
-        this.tracker      = tracker;
-        this.opacaClient  = opacaClient;
-        this.groqClient   = groqClient;
-        this.geminiClient = geminiClient;
-        this.objectMapper = objectMapper;
-        this.meters       = meters;
+        this.config             = config;
+        this.tracker            = tracker;
+        this.complexityAnalyzer = complexityAnalyzer;
+        this.opacaClient        = opacaClient;
+        this.groqClient         = groqClient;
+        this.geminiClient       = geminiClient;
+        this.objectMapper       = objectMapper;
+        this.meters             = meters;
     }
 
     // ── Public API ─────────────────────────────────────────────────────────────
@@ -77,8 +81,42 @@ public class ModelRoutingService {
         int t2     = config.getRouting().getTier2ThresholdPercent();
         int t3     = config.getRouting().getTier3ThresholdPercent();
 
-        String tier = pct >= t3 ? TIER_FALLBACK : pct >= t2 ? TIER_ECONOMY : TIER_PRIMARY;
-        log.info("Route invoke/{} agent={} usage={:.1f}% → {}", action, eid, pct, tier);
+        // ── Complexity-Aware Routing (Feature 1) ────────────────────────────
+        // Analyse the prompt complexity BEFORE the budget-based tier decision.
+        // Simple tasks are fast-tracked to Tier 2 (Economy) even when the
+        // budget is healthy, preserving Tier-1 capacity for harder reasoning.
+        boolean simpleTask = complexityAnalyzer.isSimpleTask(action, parameters);
+        double complexityScore = complexityAnalyzer.getComplexityScore(action, parameters);
+
+        // Emit complexity score to Prometheus for Grafana dashboards
+        Counter.builder("gateway_simple_task_routing_total")
+                .description("Requests fast-tracked to Tier 2 due to low complexity")
+                .tag("agent", eid)
+                .tag("simple", String.valueOf(simpleTask))
+                .register(meters)
+                .increment();
+
+        // ── Budget-based tier selection ──────────────────────────────────────
+        String tier;
+        if (pct >= t3) {
+            // Budget exhausted → always fallback regardless of complexity
+            tier = TIER_FALLBACK;
+        } else if (simpleTask && pct < t3) {
+            // Simple task → fast-track to Economy (Groq) to save Tier-1 budget
+            tier = TIER_ECONOMY;
+            log.info("CAR: simple task fast-tracked → ECONOMY (score={}, budget={}%)",
+                    String.format("%.3f", complexityScore), String.format("%.1f", pct));
+        } else if (pct >= t2) {
+            // Budget pressure → economy tier
+            tier = TIER_ECONOMY;
+        } else {
+            // Complex task + healthy budget → use full OPACA Tier 1
+            tier = TIER_PRIMARY;
+        }
+
+        log.info("Route invoke/{} agent={} usage={}% complexity={} simple={} → {}",
+                action, eid, String.format("%.1f", pct),
+                String.format("%.3f", complexityScore), simpleTask, tier);
 
         return switch (tier) {
             case TIER_PRIMARY  -> timedCall(TIER_PRIMARY,  eid, () -> callOpaca(action, parameters, agentId, timeout));

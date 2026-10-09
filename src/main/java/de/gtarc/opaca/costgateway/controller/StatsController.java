@@ -1,6 +1,7 @@
 package de.gtarc.opaca.costgateway.controller;
 
 import de.gtarc.opaca.costgateway.model.AgentUsageStats;
+import de.gtarc.opaca.costgateway.service.BudgetSharingService;
 import de.gtarc.opaca.costgateway.service.TokenTrackingService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -13,7 +14,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Admin REST API for token budget management and usage inspection.
+ * Admin REST API for token budget management, usage inspection,
+ * and global budget sharing pool operations.
  *
  * All endpoints are prefixed with /gateway to avoid collision with OPACA routes.
  */
@@ -26,6 +28,7 @@ import java.util.Map;
 public class StatsController {
 
     private final TokenTrackingService tracker;
+    private final BudgetSharingService budgetSharing;
 
     // ── Usage stats ────────────────────────────────────────────────────────────
 
@@ -76,6 +79,58 @@ public class StatsController {
         ));
     }
 
+    // ── Dynamic Budget Sharing pool (Feature 2) ────────────────────────────────
+
+    @GetMapping("/pool")
+    @Operation(
+        summary = "Query global budget sharing pool",
+        description = "Returns the current size of the global token sharing pool. "
+                    + "Agents donate surplus tokens to this pool and starving agents borrow from it "
+                    + "(Dynamic Budget Sharing — novelty feature 2).")
+    public ResponseEntity<Map<String, Object>> getPool() {
+        budgetSharing.ensurePoolInitialised();
+        return ResponseEntity.ok(Map.of(
+                "globalPoolTokens", budgetSharing.getPoolSize(),
+                "description",      "Global shared token pool for inter-agent budget lending"
+        ));
+    }
+
+    @PostMapping("/pool/borrow/{agentId}")
+    @Operation(
+        summary = "Manually trigger a borrow from the global pool",
+        description = "Allows an agent to manually request tokens from the global sharing pool. "
+                    + "Returns the actual number borrowed (may be 0 if pool is empty).")
+    public ResponseEntity<Map<String, Object>> manualBorrow(@PathVariable String agentId) {
+        long borrowed = budgetSharing.tryBorrow(agentId);
+        if (borrowed > 0) {
+            long currentBudget = tracker.getTokenBudget(agentId);
+            tracker.setTokenBudget(agentId, currentBudget + borrowed);
+        }
+        return ResponseEntity.ok(Map.of(
+                "agentId",          agentId,
+                "tokensBorrowed",   borrowed,
+                "poolRemaining",    budgetSharing.getPoolSize(),
+                "message",          borrowed > 0
+                                        ? "Successfully borrowed " + borrowed + " tokens from global pool"
+                                        : "Global pool is empty — no tokens available to borrow"
+        ));
+    }
+
+    @PostMapping("/pool/donate/{agentId}")
+    @Operation(
+        summary = "Manually trigger a donation to the global pool",
+        description = "Forces an agent to donate a fraction of its remaining budget to the global sharing pool.")
+    public ResponseEntity<Map<String, Object>> manualDonate(@PathVariable String agentId) {
+        long used   = tracker.getTokensUsed(agentId);
+        long budget = tracker.getTokenBudget(agentId);
+        budgetSharing.tryDonate(agentId, used, budget);
+        return ResponseEntity.ok(Map.of(
+                "agentId",       agentId,
+                "poolSize",      budgetSharing.getPoolSize(),
+                "message",       "Donation attempt completed (actual donation depends on idle threshold)"
+        ));
+    }
+
     // ── Gateway info ───────────────────────────────────────────────────────────
 
     @GetMapping("/info")
@@ -84,9 +139,10 @@ public class StatsController {
     public ResponseEntity<Map<String, String>> info() {
         return ResponseEntity.ok(Map.of(
                 "service",     "OPACA Cost-Aware Gateway",
-                "version",     "1.0.0",
+                "version",     "2.0.0",
                 "status",      "running",
-                "description", "Cost-aware API gateway with multi-tier LLM routing for OPACA"
+                "description", "Cost-aware API gateway with multi-tier LLM routing, " +
+                               "complexity-aware routing, dynamic budget sharing, and predictive token costing"
         ));
     }
 }

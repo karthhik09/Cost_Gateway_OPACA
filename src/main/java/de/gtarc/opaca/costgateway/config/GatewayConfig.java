@@ -19,6 +19,8 @@ public class GatewayConfig {
     private RoutingConfig routing = new RoutingConfig();
     private GroqConfig groq = new GroqConfig();
     private GeminiConfig gemini = new GeminiConfig();
+    private PoolConfig pool = new PoolConfig();
+    private PredictorConfig predictor = new PredictorConfig();
 
     // ── OPACA upstream ────────────────────────────────────────────────────────
 
@@ -58,6 +60,12 @@ public class GatewayConfig {
          * Default: 100
          */
         private int tier3ThresholdPercent = 100;
+        /**
+         * Complexity score cutoff: tasks scoring below this value are classified
+         * as SIMPLE and fast-tracked to Tier 2 (Complexity-Aware Routing, Feature 1).
+         * Range 0.0–1.0. Default: 0.35
+         */
+        private double simpleScoreCutoff = 0.35;
     }
 
     // ── Groq (Tier 2 — Economy LLM) ───────────────────────────────────────────
@@ -78,5 +86,31 @@ public class GatewayConfig {
         private String baseUrl = "https://generativelanguage.googleapis.com/v1beta";
         private String model = "gemini-3.8-flash";
         private int timeoutSeconds = 30;
+    }
+
+    // ── Dynamic Budget Sharing pool (Feature 2) ───────────────────────────────
+
+    @Data
+    public static class PoolConfig {
+        /** Initial tokens seeded into the global pool at window start. */
+        private long initialTokens = 3000;
+        /** Agents below this % usage are eligible to donate surplus. */
+        private double donateThresholdPct = 50.0;
+        /** Fraction of remaining budget donated per donation event. */
+        private double donateFraction = 0.20;
+        /** Maximum tokens a single agent may borrow per operation. */
+        private long maxBorrowTokens = 2000;
+    }
+
+    // ── Predictive Token Costing (Feature 3) ─────────────────────────────────
+
+    @Data
+    public static class PredictorConfig {
+        /** Average characters per LLM token (OpenAI empirical: ~4; we use 3.5). */
+        private double charsPerToken = 3.5;
+        /** Safety multiplier on top of char-based estimate. */
+        private double safetyFactor = 1.25;
+        /** Headroom fraction: reject only when predicted > (1 - headroom) * remaining. */
+        private double headroomFraction = 0.10;
     }
 }
