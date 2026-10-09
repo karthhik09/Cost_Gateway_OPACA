@@ -1,0 +1,279 @@
+{
+  "info": {
+    "name": "OPACA Cost-Aware Gateway",
+    "description": "Complete API test collection for the OPACA Cost-Aware Gateway.\n\nSet the `base_url` variable to http://localhost:8080 before running.\n\nRun the requests in order: first set a budget, then invoke, then check stats.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "opaca-gateway-v1"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8080", "type": "string" },
+    { "key": "agent_id", "value": "research-agent-1", "type": "string" }
+  ],
+  "item": [
+
+    {
+      "name": "1. Health & Info",
+      "item": [
+        {
+          "name": "Gateway Health",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/actuator/health", "host": ["{{base_url}}"], "path": ["actuator", "health"] },
+            "description": "Full health check including Redis connectivity. Look for `status: UP` and `redis.status: UP`."
+          }
+        },
+        {
+          "name": "Gateway Info",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/gateway/info", "host": ["{{base_url}}"], "path": ["gateway", "info"] },
+            "description": "Service metadata: name, version, status."
+          }
+        },
+        {
+          "name": "Prometheus Metrics (raw)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/actuator/prometheus", "host": ["{{base_url}}"], "path": ["actuator", "prometheus"] },
+            "description": "Raw Prometheus metrics endpoint. Look for `gateway_tokens_used_total`, `gateway_throttle_events_total`, `gateway_tier_distribution_total`, and `gateway_invoke_duration_seconds_*`."
+          }
+        },
+        {
+          "name": "Swagger UI",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/swagger-ui.html", "host": ["{{base_url}}"], "path": ["swagger-ui.html"] },
+            "description": "Open in browser for interactive API documentation."
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "2. Budget Management",
+      "item": [
+        {
+          "name": "Set Budget (10000 tokens)",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/gateway/budget/{{agent_id}}", "host": ["{{base_url}}"], "path": ["gateway", "budget", "{{agent_id}}"] },
+            "body": { "mode": "raw", "raw": "{\n  \"budget\": 10000\n}" },
+            "description": "Set a 10,000-token budget for the agent. Calls stay in Tier 1 (OPACA) until 80% usage, then route to Groq (Tier 2), then Gemini (Tier 3)."
+          }
+        },
+        {
+          "name": "Set Budget TIGHT (50 tokens — triggers tier routing fast)",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/gateway/budget/{{agent_id}}", "host": ["{{base_url}}"], "path": ["gateway", "budget", "{{agent_id}}"] },
+            "body": { "mode": "raw", "raw": "{\n  \"budget\": 50\n}" },
+            "description": "Set a very tight budget of 50 tokens. The first invoke will use ~100 tokens and immediately push the agent to ECONOMY tier, then FALLBACK, then trigger 429s."
+          }
+        },
+        {
+          "name": "Get Stats (all agents)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/gateway/stats", "host": ["{{base_url}}"], "path": ["gateway", "stats"] },
+            "description": "All agent stats from Redis: tokensUsed, tokenBudget, usagePercent, totalCostUsd, requestCount, throttledCount, currentTier."
+          }
+        },
+        {
+          "name": "Get Stats (specific agent)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/gateway/stats/{{agent_id}}", "host": ["{{base_url}}"], "path": ["gateway", "stats", "{{agent_id}}"] },
+            "description": "Stats for a single agent. Key fields to show: usagePercent, currentTier, throttledCount."
+          }
+        },
+        {
+          "name": "Reset Agent Counters",
+          "request": {
+            "method": "DELETE",
+            "url": { "raw": "{{base_url}}/gateway/budget/{{agent_id}}/reset", "host": ["{{base_url}}"], "path": ["gateway", "budget", "{{agent_id}}", "reset"] },
+            "description": "Clears all Redis counters for this agent. Useful to reset between demo runs."
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "3. Invoke — Tier 1 (PRIMARY → OPACA)",
+      "item": [
+        {
+          "name": "Invoke summarize (OPACA)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/invoke/summarize/{{agent_id}}", "host": ["{{base_url}}"], "path": ["invoke", "summarize", "{{agent_id}}"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"OPACA is a multi-agent framework published by TU Berlin in IEEE Access 2024. Agents communicate via REST and can be deployed in Docker containers.\"\n}"
+            },
+            "description": "With a generous budget and low usage, this routes to OPACA (Tier 1). Check the `X-Gateway-Tier: PRIMARY` response header."
+          }
+        },
+        {
+          "name": "Invoke translate (OPACA)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/invoke/translate/{{agent_id}}", "host": ["{{base_url}}"], "path": ["invoke", "translate", "{{agent_id}}"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"Cost-aware routing saves money\",\n  \"target_language\": \"German\"\n}"
+            },
+            "description": "OPACA invoke with a multi-parameter payload."
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "4. Invoke — Tier 2 (ECONOMY → Groq)",
+      "item": [
+        {
+          "name": "Set budget at 90% used (forces ECONOMY tier)",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/gateway/budget/{{agent_id}}", "host": ["{{base_url}}"], "path": ["gateway", "budget", "{{agent_id}}"] },
+            "body": { "mode": "raw", "raw": "{\n  \"budget\": 100\n}" },
+            "description": "Set budget to 100 tokens. After one invoke (~100 tokens), usage = ~100% pushing next call to ECONOMY tier."
+          }
+        },
+        {
+          "name": "Invoke ask (→ Groq ECONOMY)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/invoke/ask/{{agent_id}}", "host": ["{{base_url}}"], "path": ["invoke", "ask", "{{agent_id}}"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"What is a multi-agent system and why is cost control important for LLM-based agents?\"\n}"
+            },
+            "description": "Budget > 80% → routed to Groq (openai/gpt-oss-20b). Check `X-Gateway-Tier: ECONOMY` header and `tokenUsage.model` in response."
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "5. Invoke — Tier 3 (FALLBACK → Gemini)",
+      "item": [
+        {
+          "name": "Set budget = 1 token (forces FALLBACK tier)",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/gateway/budget/{{agent_id}}", "host": ["{{base_url}}"], "path": ["gateway", "budget", "{{agent_id}}"] },
+            "body": { "mode": "raw", "raw": "{\n  \"budget\": 1\n}" },
+            "description": "Budget of 1 token ensures usage is immediately ≥ 100%, routing to FALLBACK (Gemini)."
+          }
+        },
+        {
+          "name": "Invoke analyze (→ Gemini FALLBACK)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/invoke/analyze/{{agent_id}}", "host": ["{{base_url}}"], "path": ["invoke", "analyze", "{{agent_id}}"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"data\": \"Token budget exhaustion in LLM-based multi-agent systems\",\n  \"goal\": \"Identify cost optimization strategies\"\n}"
+            },
+            "description": "Budget ≥ 100% → routes to Gemini 3.8 Flash. Check `X-Gateway-Tier: FALLBACK` and `tokenUsage.model: gemini-3.8-flash`."
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "6. Trigger 429 (Budget Exhausted)",
+      "item": [
+        {
+          "name": "Set budget = 1 (already done above)",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/gateway/budget/{{agent_id}}", "host": ["{{base_url}}"], "path": ["gateway", "budget", "{{agent_id}}"] },
+            "body": { "mode": "raw", "raw": "{\n  \"budget\": 1\n}" }
+          }
+        },
+        {
+          "name": "Invoke repeatedly until 429",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/invoke/chat/{{agent_id}}", "host": ["{{base_url}}"], "path": ["invoke", "chat", "{{agent_id}}"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"Explain cost-aware routing in LLM systems\"\n}"
+            },
+            "description": "Run this request 3-4 times. After a few calls the usage will reach 150%+ and you will receive:\nHTTP 429 Too Many Requests\nRetry-After: <seconds>\nX-Gateway-Tier: REJECTED\n\nThis proves the hard budget enforcement is working. Check Grafana — the 429 Throttle Events panel will spike."
+          }
+        },
+        {
+          "name": "Verify throttle count in stats",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/gateway/stats/{{agent_id}}", "host": ["{{base_url}}"], "path": ["gateway", "stats", "{{agent_id}}"] },
+            "description": "After triggering 429s, check throttledCount in the stats response. Should match the number of 429s you received."
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "7. Multi-Agent Scenario",
+      "item": [
+        {
+          "name": "Setup Agent A — generous budget",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/gateway/budget/agent-A", "host": ["{{base_url}}"], "path": ["gateway", "budget", "agent-A"] },
+            "body": { "mode": "raw", "raw": "{\n  \"budget\": 50000\n}" }
+          }
+        },
+        {
+          "name": "Setup Agent B — tight budget",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/gateway/budget/agent-B", "host": ["{{base_url}}"], "path": ["gateway", "budget", "agent-B"] },
+            "body": { "mode": "raw", "raw": "{\n  \"budget\": 200\n}" }
+          }
+        },
+        {
+          "name": "Invoke agent-A (PRIMARY tier expected)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/invoke/summarize/agent-A", "host": ["{{base_url}}"], "path": ["invoke", "summarize", "agent-A"] },
+            "body": { "mode": "raw", "raw": "{\n  \"text\": \"The OPACA gateway provides cost-aware routing\"\n}" }
+          }
+        },
+        {
+          "name": "Invoke agent-B (ECONOMY tier expected after few calls)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/invoke/summarize/agent-B", "host": ["{{base_url}}"], "path": ["invoke", "summarize", "agent-B"] },
+            "body": { "mode": "raw", "raw": "{\n  \"text\": \"Multi-agent systems need cost control mechanisms\"\n}" }
+          }
+        },
+        {
+          "name": "Compare stats of both agents",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/gateway/stats", "host": ["{{base_url}}"], "path": ["gateway", "stats"] },
+            "description": "Shows agent-A in PRIMARY tier vs agent-B in ECONOMY/FALLBACK — proving per-agent isolation."
+          }
+        }
+      ]
+    }
+
+  ]
+}

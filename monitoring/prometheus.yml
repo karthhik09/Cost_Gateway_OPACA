@@ -1,0 +1,19 @@
+global:
+  scrape_interval:     10s
+  evaluation_interval: 10s
+  external_labels:
+    cluster: 'local'
+
+scrape_configs:
+  # Cost-Aware Gateway
+  - job_name: 'opaca-cost-gateway'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['host.docker.internal:8080']
+        labels:
+          application: opaca-cost-gateway
+
+  # Self
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
