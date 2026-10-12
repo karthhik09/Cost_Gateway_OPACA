@@ -119,7 +119,14 @@ public class ModelRoutingService {
                 String.format("%.3f", complexityScore), simpleTask, tier);
 
         return switch (tier) {
-            case TIER_PRIMARY  -> timedCall(TIER_PRIMARY,  eid, () -> callOpaca(action, parameters, agentId, timeout));
+            case TIER_PRIMARY  -> {
+                try {
+                    yield timedCall(TIER_PRIMARY,  eid, () -> callOpaca(action, parameters, agentId, timeout));
+                } catch (Exception e) {
+                    log.warn("OPACA platform on port 8000 unreachable ({}). Seamlessly falling back to Tier 2 (Groq)", e.getMessage());
+                    yield timedCall(TIER_ECONOMY, eid, () -> callGroq(action, parameters, eid));
+                }
+            }
             case TIER_ECONOMY  -> timedCall(TIER_ECONOMY,  eid, () -> callGroq(action, parameters, eid));
             default            -> timedCall(TIER_FALLBACK, eid, () -> callGemini(action, parameters, eid));
         };

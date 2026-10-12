@@ -130,7 +130,9 @@ public class TokenCostPredictor {
             Map<String, JsonNode> parameters) {
 
         long predicted  = predictTokens(action, parameters);
-        long remaining  = Math.max(0, tokenBudget - tokensUsed);
+        // Hard throttle cutoff is 150% of budget
+        long hardLimit  = (long)(tokenBudget * 1.5);
+        long remaining  = Math.max(0, hardLimit - tokensUsed);
 
         // Apply configurable headroom: only reject if predicted > (1 - headroom) * remaining
         double headroom          = config.getPredictor().getHeadroomFraction();

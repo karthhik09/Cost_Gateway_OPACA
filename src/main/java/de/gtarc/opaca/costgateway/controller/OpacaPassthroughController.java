@@ -25,7 +25,7 @@ public class OpacaPassthroughController {
 
     private final WebClient opacaWebClient;
 
-    public OpacaPassthroughController(@Qualifier("opacaWebClient") WebClient opacaWebClient) {
+    public OpacaPassthroughController(@Qualifier("opacaClient") WebClient opacaWebClient) {
         this.opacaWebClient = opacaWebClient;
     }
 

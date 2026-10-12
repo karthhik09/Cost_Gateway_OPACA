@@ -18,7 +18,7 @@ public class WebClientConfig {
 
     private static final int MAX_BUFFER_MB = 16;
 
-    @Bean("opacaClient")
+    @Bean({"opacaClient", "opacaWebClient"})
     public WebClient opacaClient() {
         return WebClient.builder()
                 .baseUrl(config.getOpaca().getBaseUrl())

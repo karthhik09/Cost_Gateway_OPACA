@@ -146,6 +146,13 @@ public class TokenTrackingService {
         log.info("Agent [{}]: budget set to {} tokens", agentId, budget);
     }
 
+    public void setTokensUsed(String agentId, long used) {
+        String tokensKey = key(KEY_TOKENS_USED, agentId);
+        redis.opsForValue().set(tokensKey, String.valueOf(used));
+        applyWindowTtlIfAbsent(tokensKey, config.getBudget().getResetWindowSeconds());
+        log.info("Agent [{}]: tokens used manually set to {}", agentId, used);
+    }
+
     public double getBudgetUsagePercent(String agentId) {
         long used   = getTokensUsed(agentId);
         long budget = getTokenBudget(agentId);

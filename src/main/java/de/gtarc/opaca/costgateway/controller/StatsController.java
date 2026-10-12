@@ -79,6 +79,34 @@ public class StatsController {
         ));
     }
 
+    @PutMapping("/usage/{agentId}")
+    @Operation(summary = "Manually set tokens used for an agent (for testing tier switching and 429s)")
+    public ResponseEntity<Map<String, Object>> setUsage(
+            @PathVariable String agentId,
+            @RequestBody Map<String, Long> body) {
+        Long used = body.get("used");
+        if (used == null || used < 0) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Field 'used' must be a non-negative integer"));
+        }
+        tracker.setTokensUsed(agentId, used);
+        return ResponseEntity.ok(Map.of(
+                "agentId", agentId,
+                "tokensUsed", used,
+                "usagePercent", tracker.getBudgetUsagePercent(agentId),
+                "message", "Usage updated successfully"
+        ));
+    }
+
+    @DeleteMapping("/pool/reset")
+    @Operation(summary = "Empty the global sharing pool to 0 (for testing 429 without borrowing)")
+    public ResponseEntity<Map<String, Object>> resetPool() {
+        budgetSharing.setPoolSize(0);
+        return ResponseEntity.ok(Map.of(
+                "message", "Global sharing pool reset to 0 tokens",
+                "globalPoolTokens", 0L
+        ));
+    }
+
     // ── Dynamic Budget Sharing pool (Feature 2) ────────────────────────────────
 
     @GetMapping("/pool")

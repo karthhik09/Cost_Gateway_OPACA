@@ -199,6 +199,11 @@ public class BudgetSharingService {
         return parseLong(redis.opsForValue().get(GLOBAL_POOL_KEY));
     }
 
+    public void setPoolSize(long size) {
+        redis.opsForValue().set(GLOBAL_POOL_KEY, String.valueOf(size));
+        log.info("Global pool size set to {} tokens", size);
+    }
+
     // ── Helpers ────────────────────────────────────────────────────────────────
 
     private long parseLong(String v) {

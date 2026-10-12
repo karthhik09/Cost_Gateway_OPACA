@@ -118,40 +118,12 @@ public class GatewayController {
             long budget      = tracker.getTokenBudget(effectiveAgent);
             long resetIn     = tracker.getBudgetResetInSeconds(effectiveAgent);
 
-            // ── Feature 3: Predictive Token Costing ───────────────────────────
-            // Estimate how many tokens this request will use BEFORE calling the
-            // upstream API.  Reject pre-emptively if the estimate exceeds the
-            // remaining budget (with a 10% headroom to avoid over-rejection).
-            TokenCostPredictor.PredictionResult prediction =
-                    predictor.shouldReject(effectiveAgent, used, budget, action, parameters);
-
-            if (prediction.shouldReject) {
-                log.warn("PRE-EMPTIVE REJECT agent={} predicted={} remaining={}",
-                        effectiveAgent, prediction.predictedTokens, prediction.remainingBudget);
-                return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
-                        .header("X-Predicted-Tokens",  String.valueOf(prediction.predictedTokens))
-                        .header("X-Remaining-Budget",  String.valueOf(prediction.remainingBudget))
-                        .header("Retry-After",          String.valueOf(resetIn))
-                        .header("X-Gateway-Tier",       "REJECTED")
-                        .body(GatewayResponse.builder()
-                                .errorCode("PREDICTED_BUDGET_EXCEEDED")
-                                .error("Predicted " + prediction.predictedTokens + " tokens but only "
-                                        + prediction.remainingBudget + " remain in budget for agent '"
-                                        + effectiveAgent + "'. Estimated cost: $"
-                                        + String.format("%.6f", prediction.predictedCostUsd)
-                                        + ". Resets in " + resetIn + "s.")
-                                .agentId(effectiveAgent)
-                                .tier("REJECTED")
-                                .build());
-            }
-
             // ── Feature 2: Dynamic Budget Sharing — borrow if starving ─────────
-            // If the agent is approaching the hard-reject threshold, try to
-            // borrow from the global shared pool before issuing HTTP 429.
-            if (usagePct >= 150.0) {
+            // If the agent is approaching the hard-reject threshold (>= 100%),
+            // try to borrow from the global shared pool before rejecting.
+            if (usagePct >= 100.0) {
                 long borrowed = budgetSharing.tryBorrow(effectiveAgent);
                 if (borrowed > 0) {
-                    // Grant borrowed tokens by raising the agent's budget temporarily
                     tracker.setTokenBudget(effectiveAgent, budget + borrowed);
                     budget   = budget + borrowed;
                     usagePct = tracker.getBudgetUsagePercent(effectiveAgent);
@@ -160,7 +132,7 @@ public class GatewayController {
                 }
             }
 
-            // Hard stop at 150% over budget — return 429
+            // ── Hard stop at 150% over budget — return 429 ────────────────────
             if (usagePct >= 150.0) {
                 tracker.recordThrottle(effectiveAgent);
                 log.warn("HARD REJECT agent={} usage={}%", effectiveAgent, usagePct);
@@ -176,6 +148,32 @@ public class GatewayController {
                                 .error("Token budget exhausted for agent '" + effectiveAgent
                                         + "' (used " + used + " / " + budget + " tokens). "
                                         + "Pool also exhausted. Resets in " + resetIn + "s.")
+                                .agentId(effectiveAgent)
+                                .tier("REJECTED")
+                                .build());
+            }
+
+            // ── Feature 3: Predictive Token Costing ───────────────────────────
+            // Estimate tokens before calling upstream. Pre-emptively reject
+            // with 422 only if predicted tokens would exceed the remaining hard limit.
+            TokenCostPredictor.PredictionResult prediction =
+                    predictor.shouldReject(effectiveAgent, used, budget, action, parameters);
+
+            if (prediction.shouldReject) {
+                log.warn("PRE-EMPTIVE REJECT agent={} predicted={} remaining={}",
+                        effectiveAgent, prediction.predictedTokens, prediction.remainingBudget);
+                return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
+                        .header("X-Predicted-Tokens",  String.valueOf(prediction.predictedTokens))
+                        .header("X-Remaining-Budget",  String.valueOf(prediction.remainingBudget))
+                        .header("Retry-After",          String.valueOf(resetIn))
+                        .header("X-Gateway-Tier",       "REJECTED")
+                        .body(GatewayResponse.builder()
+                                .errorCode("PREDICTED_BUDGET_EXCEEDED")
+                                .error("Predicted " + prediction.predictedTokens + " tokens but only "
+                                        + prediction.remainingBudget + " remain before hard limit for agent '"
+                                        + effectiveAgent + "'. Estimated cost: $"
+                                        + String.format("%.6f", prediction.predictedCostUsd)
+                                        + ". Resets in " + resetIn + "s.")
                                 .agentId(effectiveAgent)
                                 .tier("REJECTED")
                                 .build());
