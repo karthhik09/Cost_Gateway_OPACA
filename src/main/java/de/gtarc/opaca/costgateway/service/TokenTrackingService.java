@@ -104,10 +104,18 @@ public class TokenTrackingService {
                 .register(meters)
                 .increment();
 
-        // Register a gauge that tracks current window usage % (for alerting)
+        // Register a gauge that tracks current window usage % (for alerting).
+        // The callback is wrapped in try-catch because Prometheus scrapes it on every
+        // /actuator/prometheus poll — a Redis timeout here must NOT propagate as an exception.
         final String aid = agentId;
-        Gauge.builder("gateway_budget_usage_percent",
-                        () -> getBudgetUsagePercent(aid))
+        Gauge.builder("gateway_budget_usage_percent", () -> {
+                    try {
+                        return getBudgetUsagePercent(aid);
+                    } catch (Exception e) {
+                        log.trace("Gauge callback: Redis unavailable for agent [{}], returning 0.0: {}", aid, e.getMessage());
+                        return 0.0;
+                    }
+                })
                 .description("Current budget usage percentage for this agent")
                 .tag("agent", agentId)
                 .register(meters);

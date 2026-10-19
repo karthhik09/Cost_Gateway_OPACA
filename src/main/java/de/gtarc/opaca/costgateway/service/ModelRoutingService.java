@@ -74,21 +74,22 @@ public class ModelRoutingService {
             String action,
             Map<String, JsonNode> parameters,
             String agentId,
-            int timeout) {
+            int timeout,
+            double usagePctBeforeBorrow) {
 
         String eid = agentId != null ? agentId : "default";
-        double pct = tracker.getBudgetUsagePercent(eid);
-        int t2     = config.getRouting().getTier2ThresholdPercent();
-        int t3     = config.getRouting().getTier3ThresholdPercent();
+        // Use the pre-borrow usage% so routing decisions reflect the agent's REAL
+        // financial state before Dynamic Budget Sharing extended its budget.
+        // Without this, borrowing would always reset pct to <100%, making FALLBACK unreachable.
+        double pct = usagePctBeforeBorrow;
+        int t2     = config.getRouting().getTier2ThresholdPercent();  // default 80
+        int t3     = config.getRouting().getTier3ThresholdPercent();  // default 100
 
         // ── Complexity-Aware Routing (Feature 1) ────────────────────────────
-        // Analyse the prompt complexity BEFORE the budget-based tier decision.
-        // Simple tasks are fast-tracked to Tier 2 (Economy) even when the
-        // budget is healthy, preserving Tier-1 capacity for harder reasoning.
-        boolean simpleTask = complexityAnalyzer.isSimpleTask(action, parameters);
+        boolean simpleTask     = complexityAnalyzer.isSimpleTask(action, parameters);
         double complexityScore = complexityAnalyzer.getComplexityScore(action, parameters);
 
-        // Emit complexity score to Prometheus for Grafana dashboards
+        // Emit routing decision counter for Prometheus
         Counter.builder("gateway_simple_task_routing_total")
                 .description("Requests fast-tracked to Tier 2 due to low complexity")
                 .tag("agent", eid)
@@ -96,27 +97,34 @@ public class ModelRoutingService {
                 .register(meters)
                 .increment();
 
-        // ── Budget-based tier selection ──────────────────────────────────────
+        // ── Budget-based tier selection (priority order matters) ──────────────
+        // Rule 1: Budget >= 100% (Tier-3 threshold) → ALWAYS Gemini (FALLBACK)
+        //         This takes priority over everything including complexity.
+        // Rule 2: Budget >= 80% (Tier-2 threshold) → ECONOMY, regardless of complexity
+        //         Budget pressure overrides the complexity fast-track.
+        // Rule 3: Simple task + healthy budget → ECONOMY (complexity fast-track saves Tier-1)
+        // Rule 4: Complex task + healthy budget → PRIMARY (full OPACA)
         String tier;
         if (pct >= t3) {
-            // Budget exhausted → always fallback regardless of complexity
             tier = TIER_FALLBACK;
-        } else if (simpleTask && pct < t3) {
-            // Simple task → fast-track to Economy (Groq) to save Tier-1 budget
-            tier = TIER_ECONOMY;
-            log.info("CAR: simple task fast-tracked → ECONOMY (score={}, budget={}%)",
-                    String.format("%.3f", complexityScore), String.format("%.1f", pct));
+            log.info("Budget exhausted ({}% >= {}%) → FALLBACK (Gemini)", String.format("%.1f", pct), t3);
         } else if (pct >= t2) {
-            // Budget pressure → economy tier
             tier = TIER_ECONOMY;
+            log.info("Budget pressure ({}% >= {}%) → ECONOMY (Groq)", String.format("%.1f", pct), t2);
+        } else if (simpleTask) {
+            // Healthy budget but simple task → Economy to preserve Tier-1 for complex work
+            tier = TIER_ECONOMY;
+            log.info("CAR: simple task (score={}) fast-tracked → ECONOMY (budget={}%)",
+                    String.format("%.3f", complexityScore), String.format("%.1f", pct));
         } else {
-            // Complex task + healthy budget → use full OPACA Tier 1
+            // Complex task + healthy budget → full OPACA (PRIMARY)
             tier = TIER_PRIMARY;
+            log.info("Complex task (score={}) + healthy budget ({}%) → PRIMARY (OPACA)",
+                    String.format("%.3f", complexityScore), String.format("%.1f", pct));
         }
 
         log.info("Route invoke/{} agent={} usage={}% complexity={} simple={} → {}",
-                action, eid, String.format("%.1f", pct),
-                String.format("%.3f", complexityScore), simpleTask, tier);
+                action, eid, String.format("%.1f", pct), String.format("%.3f", complexityScore), simpleTask, tier);
 
         return switch (tier) {
             case TIER_PRIMARY  -> {
@@ -135,7 +143,7 @@ public class ModelRoutingService {
     // ── Tier 1: OPACA ─────────────────────────────────────────────────────────
 
     private GatewayResponse callOpaca(String action, Map<String, JsonNode> params,
-                                       String agentId, int timeout) {
+                                    String agentId, int timeout) {
         String path = (agentId != null)
                 ? "/invoke/" + action + "/" + agentId
                 : "/invoke/" + action;
@@ -210,6 +218,10 @@ public class ModelRoutingService {
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(body.toString())
                 .retrieve()
+                .onStatus(status -> !status.is2xxSuccessful(), clientResponse ->
+                        clientResponse.bodyToMono(String.class)
+                                .map(errBody -> new RuntimeException(
+                                        "Gemini API error " + clientResponse.statusCode() + ": " + errBody)))
                 .bodyToMono(String.class)
                 .timeout(Duration.ofSeconds(config.getGemini().getTimeoutSeconds()))
                 .block();

@@ -119,16 +119,20 @@ public class GatewayController {
             long resetIn     = tracker.getBudgetResetInSeconds(effectiveAgent);
 
             // ── Feature 2: Dynamic Budget Sharing — borrow if starving ─────────
-            // If the agent is approaching the hard-reject threshold (>= 100%),
-            // try to borrow from the global shared pool before rejecting.
+            // Capture the ORIGINAL usage% BEFORE borrowing. This value is passed
+            // to the router so FALLBACK (Gemini) can be reached even after the
+            // budget is extended via pool borrowing.
+            double preBorrowPct = usagePct;
+
             if (usagePct >= 100.0) {
                 long borrowed = budgetSharing.tryBorrow(effectiveAgent);
                 if (borrowed > 0) {
                     tracker.setTokenBudget(effectiveAgent, budget + borrowed);
                     budget   = budget + borrowed;
-                    usagePct = tracker.getBudgetUsagePercent(effectiveAgent);
-                    log.info("Agent [{}] borrowed {} tokens from pool — new budget={} usage={}%",
-                            effectiveAgent, borrowed, budget, String.format("%.1f", usagePct));
+                    // Note: we intentionally do NOT update usagePct here.
+                    // preBorrowPct is kept for routing; the new budget is in Redis.
+                    log.info("Agent [{}] borrowed {} tokens from pool — new budget={} pre-borrow-usage={}%",
+                            effectiveAgent, borrowed, budget, String.format("%.1f", preBorrowPct));
                 }
             }
 
@@ -185,7 +189,9 @@ public class GatewayController {
             budgetSharing.tryDonate(effectiveAgent, used, budget);
 
             // ── Route to appropriate tier (Feature 1 integrated in router) ─────
-            GatewayResponse response = router.routeInvoke(action, parameters, agentId, timeout);
+            // Pass preBorrowPct so the router uses the agent's real financial state
+            // (before Dynamic Budget Sharing extended the budget).
+            GatewayResponse response = router.routeInvoke(action, parameters, agentId, timeout, preBorrowPct);
             response.setAgentId(effectiveAgent);
 
             // Record token usage in Redis + Prometheus
