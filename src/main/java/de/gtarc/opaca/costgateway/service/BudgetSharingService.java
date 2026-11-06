@@ -41,8 +41,20 @@ import java.util.concurrent.TimeUnit;
 public class BudgetSharingService {
 
     // Redis key for the global pool
-    static final String GLOBAL_POOL_KEY = "global:pool:tokens";
+    static final String GLOBAL_POOL_KEY        = "global:pool:tokens";
     static final String GLOBAL_POOL_WINDOW_KEY = "global:pool:window";
+
+    /** Set once per budget-window per agent to cap donations to exactly one. */
+    private static final String KEY_DONATED_WINDOW  = "agent:%s:pool:donated_window";
+    /** Set once per budget-window per agent when it successfully borrows. */
+    private static final String KEY_BORROWED_WINDOW = "agent:%s:pool:borrowed_window";
+
+    /**
+     * Pool is considered "low" when it falls below this fraction of its
+     * initial seed. Donations are suppressed when the pool is already healthy
+     * to prevent unbounded pool growth. (0.5 = donate only if pool < 50% of seed)
+     */
+    private static final double POOL_LOW_THRESHOLD_FRACTION = 0.5;
 
     /**
      * An agent donates when its usage is below this % of its own budget.
@@ -98,8 +110,16 @@ public class BudgetSharingService {
 
     /**
      * Called after recording usage for an agent that is well within its budget.
-     * If the agent is idle (below DONATE_THRESHOLD_PCT), it donates a fraction
-     * of its remaining budget to the global pool.
+     * Guards ensure the pool stays well-behaved:
+     * <ol>
+     *   <li><b>Once per window</b> — a Redis flag prevents repeated donations
+     *       within the same budget window, stopping budget drain on every call.</li>
+     *   <li><b>Pool already healthy</b> — donation is skipped if the pool is
+     *       already above {@code POOL_LOW_THRESHOLD_FRACTION * initialTokens},
+     *       preventing unbounded pool growth.</li>
+     *   <li><b>No borrowers donate</b> — an agent that borrowed this window
+     *       never donates back in the same window (prevents Borrower→Pool ping-pong).</li>
+     * </ol>
      *
      * @param agentId      the donating agent
      * @param tokensUsed   tokens used so far this window
@@ -107,23 +127,51 @@ public class BudgetSharingService {
      */
     public void tryDonate(String agentId, long tokensUsed, long tokenBudget) {
         if (tokenBudget == 0) return;
+
+        // Guard 1: only donate once per budget window
+        String donatedKey = String.format(KEY_DONATED_WINDOW, agentId);
+        Boolean first = redis.opsForValue().setIfAbsent(donatedKey, "1");
+        if (!Boolean.TRUE.equals(first)) {
+            return;  // already donated this window
+        }
+        long windowSec = config.getBudget().getResetWindowSeconds();
+        redis.expire(donatedKey, windowSec, TimeUnit.SECONDS);
+
+        // Guard 2: skip if this agent borrowed this window (prevents ping-pong)
+        String borrowedKey = String.format(KEY_BORROWED_WINDOW, agentId);
+        if (Boolean.TRUE.equals(redis.hasKey(borrowedKey))) {
+            redis.delete(donatedKey);  // release the lock — no donation this window
+            return;
+        }
+
+        // Guard 3: only donate when the pool is low (< 50% of initial seed)
+        ensurePoolInitialised();
+        long poolSize       = parseLong(redis.opsForValue().get(GLOBAL_POOL_KEY));
+        long initialTokens  = config.getPool().getInitialTokens();
+        if (poolSize >= (long)(initialTokens * POOL_LOW_THRESHOLD_FRACTION * 2)) {
+            // Pool is healthy — no donation needed
+            redis.delete(donatedKey);
+            return;
+        }
+
         double donateThresholdPct = config.getPool().getDonateThresholdPct();
         double donateFraction     = config.getPool().getDonateFraction();
         double usagePct = (tokensUsed * 100.0) / tokenBudget;
-        if (usagePct >= donateThresholdPct) return;  // agent is not idle
+        if (usagePct >= donateThresholdPct) {
+            redis.delete(donatedKey);
+            return;  // agent is not idle
+        }
 
         long remaining = tokenBudget - tokensUsed;
         long donation  = (long)(remaining * donateFraction);
+        if (donation < MIN_DONATE_TOKENS) {
+            redis.delete(donatedKey);
+            return;
+        }
 
-        if (donation < MIN_DONATE_TOKENS) return;  // not worth the overhead
-
-        ensurePoolInitialised();
         redis.opsForValue().increment(GLOBAL_POOL_KEY, donation);
 
-        // FIX (Point 7): Deduct donated tokens from the donor's OWN budget so
-        // the pool reflects a real transfer, not token creation.
-        // We shrink the donor's budget by the donated amount, keeping used fixed,
-        // which correctly raises the donor's usage% and prevents pool inflation.
+        // Deduct donated tokens from the donor's budget (genuine transfer, not creation)
         long newBudget = Math.max(tokensUsed, tokenBudget - donation);
         redis.opsForValue().set(
             String.format("agent:%s:tokens:budget", agentId),
@@ -189,6 +237,12 @@ public class BudgetSharingService {
 
         log.info("Agent [{}] borrowed {} tokens from global pool (pool remaining: {})",
                 agentId, toBorrow, afterBorrow);
+
+        // Mark this agent as a borrower for this budget window so it cannot
+        // also donate in the same window (prevents immediate ping-pong).
+        String borrowedKey = String.format(KEY_BORROWED_WINDOW, agentId);
+        redis.opsForValue().setIfAbsent(borrowedKey, "1");
+        redis.expire(borrowedKey, config.getBudget().getResetWindowSeconds(), TimeUnit.SECONDS);
 
         Counter.builder("gateway_pool_borrowed_tokens_total")
                 .description("Tokens borrowed from the global sharing pool")
