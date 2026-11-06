@@ -129,14 +129,18 @@ public class GatewayController {
                 if (borrowed > 0) {
                     tracker.setTokenBudget(effectiveAgent, budget + borrowed);
                     budget   = budget + borrowed;
-                    // Note: we intentionally do NOT update usagePct here.
-                    // preBorrowPct is kept for routing; the new budget is in Redis.
-                    log.info("Agent [{}] borrowed {} tokens from pool — new budget={} pre-borrow-usage={}%",
-                            effectiveAgent, borrowed, budget, String.format("%.1f", preBorrowPct));
+                    // FIX (Point 6): Recompute usagePct AFTER borrowing so the
+                    // 150% hard-reject check below uses the extended budget.
+                    // preBorrowPct is kept separately for routing decisions only.
+                    usagePct = tracker.getBudgetUsagePercent(effectiveAgent);
+                    log.info("Agent [{}] borrowed {} tokens from pool — new budget={} post-borrow-usage={}%",
+                            effectiveAgent, borrowed, budget, String.format("%.1f", usagePct));
                 }
             }
 
-            // ── Hard stop at 150% over budget — return 429 ────────────────────
+            // ── Hard stop at 150% over EXTENDED budget — return 429 ───────────
+            // usagePct is now the post-borrow percentage so a successful borrow
+            // correctly prevents rejection here.
             if (usagePct >= 150.0) {
                 tracker.recordThrottle(effectiveAgent);
                 log.warn("HARD REJECT agent={} usage={}%", effectiveAgent, usagePct);

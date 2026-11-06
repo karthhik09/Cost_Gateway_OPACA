@@ -120,8 +120,17 @@ public class BudgetSharingService {
         ensurePoolInitialised();
         redis.opsForValue().increment(GLOBAL_POOL_KEY, donation);
 
-        log.info("Agent [{}] donated {} tokens to global pool (usage={:.1f}%)",
-                agentId, donation, usagePct);
+        // FIX (Point 7): Deduct donated tokens from the donor's OWN budget so
+        // the pool reflects a real transfer, not token creation.
+        // We shrink the donor's budget by the donated amount, keeping used fixed,
+        // which correctly raises the donor's usage% and prevents pool inflation.
+        long newBudget = Math.max(tokensUsed, tokenBudget - donation);
+        redis.opsForValue().set(
+            String.format("agent:%s:tokens:budget", agentId),
+            String.valueOf(newBudget));
+
+        log.info("Agent [{}] donated {} tokens to global pool (usage={:.1f}%, new budget={})",
+                agentId, donation, usagePct, newBudget);
 
         Counter.builder("gateway_pool_donated_tokens_total")
                 .description("Tokens donated to the global sharing pool")
