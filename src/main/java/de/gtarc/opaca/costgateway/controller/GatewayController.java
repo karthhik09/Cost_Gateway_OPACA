@@ -24,33 +24,35 @@ import java.util.Map;
 /**
  * Core gateway controller that intercepts OPACA invoke calls.
  *
- * <p>Mirrors OPACA's own {@code POST /invoke/{action}} and
+ * <p>
+ * Mirrors OPACA's own {@code POST /invoke/{action}} and
  * {@code POST /invoke/{action}/{agentId}} routes so that clients can swap
  * the host from OPACA (port 8000) to the gateway (port 8080) with zero
  * other changes.
  *
- * <p>Before forwarding, the gateway now applies three novelty features:
+ * <p>
+ * Before forwarding, the gateway now applies three novelty features:
  * <ol>
- *   <li><b>Predictive Token Costing (Feature 3)</b> — estimates tokens
- *       pre-flight and pre-emptively rejects requests guaranteed to exceed
- *       the remaining budget.</li>
- *   <li><b>Dynamic Budget Sharing (Feature 2)</b> — if the agent is starving
- *       (approaching or past the hard-reject threshold), attempts to borrow
- *       tokens from the global shared pool before issuing HTTP 429.</li>
- *   <li><b>Complexity-Aware Routing (Feature 1)</b> — integrated inside
- *       {@link ModelRoutingService}: simple prompts are fast-tracked to
- *       Tier 2, preserving Tier-1 quota for complex reasoning tasks.</li>
+ * <li><b>Predictive Token Costing (Feature 3)</b> — estimates tokens
+ * pre-flight and pre-emptively rejects requests guaranteed to exceed
+ * the remaining budget.</li>
+ * <li><b>Dynamic Budget Sharing (Feature 2)</b> — if the agent is starving
+ * (approaching or past the hard-reject threshold), attempts to borrow
+ * tokens from the global shared pool before issuing HTTP 429.</li>
+ * <li><b>Complexity-Aware Routing (Feature 1)</b> — integrated inside
+ * {@link ModelRoutingService}: simple prompts are fast-tracked to
+ * Tier 2, preserving Tier-1 quota for complex reasoning tasks.</li>
  * </ol>
  *
  * Response headers on every 2xx call:
  * <ul>
- *   <li>{@code X-Gateway-Tier}         — PRIMARY | ECONOMY | FALLBACK</li>
- *   <li>{@code X-Gateway-Model}        — model identifier used</li>
- *   <li>{@code X-Tokens-This-Call}     — tokens consumed by this call</li>
- *   <li>{@code X-Tokens-Window}        — cumulative tokens in current budget window</li>
- *   <li>{@code X-Budget-Usage-Pct}     — usage percentage (e.g. 82.3)</li>
- *   <li>{@code X-Predicted-Tokens}     — pre-flight token estimate</li>
- *   <li>{@code X-Pool-Size}            — current global shared pool size</li>
+ * <li>{@code X-Gateway-Tier} — PRIMARY | ECONOMY | FALLBACK</li>
+ * <li>{@code X-Gateway-Model} — model identifier used</li>
+ * <li>{@code X-Tokens-This-Call} — tokens consumed by this call</li>
+ * <li>{@code X-Tokens-Window} — cumulative tokens in current budget window</li>
+ * <li>{@code X-Budget-Usage-Pct} — usage percentage (e.g. 82.3)</li>
+ * <li>{@code X-Predicted-Tokens} — pre-flight token estimate</li>
+ * <li>{@code X-Pool-Size} — current global shared pool size</li>
  * </ul>
  */
 @Slf4j
@@ -68,39 +70,26 @@ public class GatewayController {
     // ── Endpoints ──────────────────────────────────────────────────────────────
 
     @PostMapping("/invoke/{action}")
-    @Operation(
-        summary = "Invoke action (any agent)",
-        description = "Intercepts OPACA invoke, enforces token budget, routes to the cheapest available tier.",
-        responses = {
+    @Operation(summary = "Invoke action (any agent)", description = "Intercepts OPACA invoke, enforces token budget, routes to the cheapest available tier.", responses = {
             @ApiResponse(responseCode = "200", description = "Successful invocation"),
-            @ApiResponse(responseCode = "429", description = "Token budget exhausted — retry after window reset",
-                content = @Content(examples = @ExampleObject(
-                    value = "{\"errorCode\":\"TOKEN_BUDGET_EXCEEDED\",\"error\":\"Token budget exhausted for agent 'default'\",\"tier\":\"REJECTED\"}"))),
-            @ApiResponse(responseCode = "422", description = "Pre-emptive rejection — predicted tokens exceed remaining budget",
-                content = @Content(examples = @ExampleObject(
-                    value = "{\"errorCode\":\"PREDICTED_BUDGET_EXCEEDED\",\"error\":\"Predicted 1200 tokens but only 800 remain\",\"tier\":\"REJECTED\"}"))),
+            @ApiResponse(responseCode = "429", description = "Token budget exhausted — retry after window reset", content = @Content(examples = @ExampleObject(value = "{\"errorCode\":\"TOKEN_BUDGET_EXCEEDED\",\"error\":\"Token budget exhausted for agent 'default'\",\"tier\":\"REJECTED\"}"))),
+            @ApiResponse(responseCode = "422", description = "Pre-emptive rejection — predicted tokens exceed remaining budget", content = @Content(examples = @ExampleObject(value = "{\"errorCode\":\"PREDICTED_BUDGET_EXCEEDED\",\"error\":\"Predicted 1200 tokens but only 800 remain\",\"tier\":\"REJECTED\"}"))),
             @ApiResponse(responseCode = "502", description = "All tiers failed")
-        }
-    )
+    })
     public ResponseEntity<?> invoke(
             @PathVariable @Parameter(description = "OPACA action name") String action,
             @RequestBody Map<String, JsonNode> parameters,
-            @RequestParam(required = false, defaultValue = "-1") int timeout
-    ) {
+            @RequestParam(required = false, defaultValue = "-1") int timeout) {
         return handleInvoke(action, parameters, null, timeout);
     }
 
     @PostMapping("/invoke/{action}/{agentId}")
-    @Operation(
-        summary = "Invoke action (specific agent)",
-        description = "Same as /invoke/{action} but scoped to a specific OPACA agent ID."
-    )
+    @Operation(summary = "Invoke action (specific agent)", description = "Same as /invoke/{action} but scoped to a specific OPACA agent ID.")
     public ResponseEntity<?> invoke(
             @PathVariable @Parameter(description = "OPACA action name") String action,
             @PathVariable @Parameter(description = "OPACA agent ID") String agentId,
             @RequestBody Map<String, JsonNode> parameters,
-            @RequestParam(required = false, defaultValue = "-1") int timeout
-    ) {
+            @RequestParam(required = false, defaultValue = "-1") int timeout) {
         return handleInvoke(action, parameters, agentId, timeout);
     }
 

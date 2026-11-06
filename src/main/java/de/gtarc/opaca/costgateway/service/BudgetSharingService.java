@@ -148,7 +148,7 @@ public class BudgetSharingService {
         ensurePoolInitialised();
         long poolSize       = parseLong(redis.opsForValue().get(GLOBAL_POOL_KEY));
         long initialTokens  = config.getPool().getInitialTokens();
-        if (poolSize >= (long)(initialTokens * POOL_LOW_THRESHOLD_FRACTION * 2)) {
+        if (poolSize >= (long)(initialTokens * POOL_LOW_THRESHOLD_FRACTION)) {
             // Pool is healthy — no donation needed
             redis.delete(donatedKey);
             return;

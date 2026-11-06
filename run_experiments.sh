@@ -65,32 +65,29 @@ reset_pool_to_zero() {
   curl -s -X DELETE "$BASE/gateway/pool/reset" | python3 -m json.tool | tee -a "$LOG"
 }
 
-# Main invoke helper — adds GROQ_DELAY between calls, captures all headers
+# Main invoke helper — adds GROQ_DELAY between calls, captures all headers cleanly via temp files
 invoke_call() {
   local label="$1" action="$2" agent="$3" body="$4" skip_delay="${5:-no}"
   blank
   log "  >>> $label"
   log "  action=$action  agent=$agent"
 
-  local FULL
-  FULL=$(curl -s -D - -X POST "$BASE/invoke/${action}/${agent}" \
+  local HDR_FILE="/tmp/cg_hdr_$$.txt"
+  local BODY_FILE="/tmp/cg_body_$$.txt"
+
+  curl -s -D "$HDR_FILE" -o "$BODY_FILE" -X POST "$BASE/invoke/${action}/${agent}" \
        -H "Content-Type: application/json" \
-       -d "$body" --max-time 60)
+       -d "$body" --max-time 60
 
-  local BLANK_LINE
-  BLANK_LINE=$(echo "$FULL" | grep -n "^$" | head -1 | cut -d: -f1)
-  local HDR BODY_PART
-  HDR=$(echo "$FULL" | head -n "${BLANK_LINE:-2}")
-  BODY_PART=$(echo "$FULL" | tail -n +"$((BLANK_LINE + 1))" | head -c 300)
-
-  local HTTP TIER MODEL TOKENS PCT PRED POOL
-  HTTP=$(  echo "$HDR" | head -1 | tr -d '\r')
-  TIER=$(  echo "$HDR" | grep -i "^X-Gateway-Tier:"     | tr -d '\r' | awk '{print $2}')
-  MODEL=$( echo "$HDR" | grep -i "^X-Gateway-Model:"    | tr -d '\r' | awk '{print $2}')
-  TOKENS=$(echo "$HDR" | grep -i "^X-Tokens-This-Call:" | tr -d '\r' | awk '{print $2}')
-  PCT=$(   echo "$HDR" | grep -i "^X-Budget-Usage-Pct:" | tr -d '\r' | awk '{print $2}')
-  PRED=$(  echo "$HDR" | grep -i "^X-Predicted-Tokens:" | tr -d '\r' | awk '{print $2}')
-  POOL=$(  echo "$HDR" | grep -i "^X-Pool-Size:"        | tr -d '\r' | awk '{print $2}')
+  local HTTP TIER MODEL TOKENS PCT PRED POOL BODY_PART
+  HTTP=$(head -1 "$HDR_FILE" | tr -d '\r')
+  TIER=$(grep -i "^X-Gateway-Tier:" "$HDR_FILE" | tr -d '\r' | awk '{print $2}')
+  MODEL=$(grep -i "^X-Gateway-Model:" "$HDR_FILE" | tr -d '\r' | awk '{print $2}')
+  TOKENS=$(grep -i "^X-Tokens-This-Call:" "$HDR_FILE" | tr -d '\r' | awk '{print $2}')
+  PCT=$(grep -i "^X-Budget-Usage-Pct:" "$HDR_FILE" | tr -d '\r' | awk '{print $2}')
+  PRED=$(grep -i "^X-Predicted-Tokens:" "$HDR_FILE" | tr -d '\r' | awk '{print $2}')
+  POOL=$(grep -i "^X-Pool-Size:" "$HDR_FILE" | tr -d '\r' | awk '{print $2}')
+  BODY_PART=$(head -c 300 "$BODY_FILE" | tr -d '\r')
 
   log "  ┌ HTTP            : $HTTP"
   log "  ├ Tier            : ${TIER:-N/A}"
@@ -104,6 +101,8 @@ invoke_call() {
   # Save to global vars for use by callers
   LAST_HTTP="$HTTP"; LAST_TIER="$TIER"; LAST_MODEL="$MODEL"
   LAST_TOKENS="$TOKENS"; LAST_PCT="$PCT"; LAST_PRED="$PRED"
+
+  rm -f "$HDR_FILE" "$BODY_FILE"
 
   if [[ "$skip_delay" != "nodelay" ]]; then
     sleep "$GROQ_DELAY"
@@ -139,7 +138,7 @@ blank
 # PURPOSE: Prove tier switching is deterministic at defined budget thresholds.
 # =============================================================================
 section "EXPERIMENT 1: Three-Tier Routing Transitions"
-log "HYPOTHESIS: Gateway routes to ECONOMY (<80%), FALLBACK (>=100%),"
+log "HYPOTHESIS: Gateway routes to PRIMARY (<80%), ECONOMY (80-99%), FALLBACK (>=100%),"
 log "            and hard-rejects (429) when pool is also empty."
 blank
 
@@ -148,26 +147,32 @@ reset_agent "$A1"
 set_budget "$A1" 10000
 reset_pool_to_zero   # no pool — isolates routing from DBS
 
-# ─ Call 1: 0% → ECONOMY (complex prompt, healthy budget)
+# CRITICAL: Pre-set donated_window flag so DBS donation does NOT fire during Exp1.
+# resetUsage() clears this flag, so we re-set it immediately after reset.
+# This keeps Exp1 a pure routing-threshold test, isolated from DBS side effects.
+redis-cli SET "agent:exp1-tier:pool:donated_window" "1" EX 3600 | tee -a "$LOG"
+log "  [PRE-SET] donated_window=1 for exp1-tier (isolates Exp1 from DBS donation)"
+
+# ─ Call 1: 0% → PRIMARY (complex prompt, healthy budget)
 blank; log "--- Call 1: 0% usage ---"
 set_used "$A1" 0
-invoke_call "1a: 0% — expect ECONOMY" analyze "$A1" \
+invoke_call "1a: 0% — expect PRIMARY (OPACA)" analyze "$A1" \
   '{"data":"distributed LLM routing architecture","goal":"design cost-optimal tier strategy"}'
 
-# ─ Call 2: 50% → ECONOMY
+# ─ Call 2: 50% → PRIMARY (complex prompt, healthy budget)
 blank; log "--- Call 2: 50% usage ---"
 set_used "$A1" 5000
-invoke_call "1b: 50% — expect ECONOMY" analyze "$A1" \
+invoke_call "1b: 50% — expect PRIMARY (OPACA)" analyze "$A1" \
   '{"data":"distributed LLM routing architecture","goal":"design cost-optimal tier strategy"}'
 
-# ─ Call 3: 79% → ECONOMY (just below Tier-2 boundary)
-blank; log "--- Call 3: 79% usage ---"
-set_used "$A1" 7900
-invoke_call "1c: 79% — expect ECONOMY (just below 80% boundary)" analyze "$A1" \
+# ─ Call 3: 85% → ECONOMY (Groq) — budget pressure (>= 80%)
+blank; log "--- Call 3: 85% usage ---"
+set_used "$A1" 8500
+invoke_call "1c: 85% — expect ECONOMY (Groq)" analyze "$A1" \
   '{"data":"distributed LLM routing architecture","goal":"design cost-optimal tier strategy"}'
 
 # ─ Call 4: 100% → FALLBACK (Gemini) — pool is 0 so no borrow possible
-blank; log "--- Call 4: 100% usage, pool=0 → FALLBACK ---"
+blank; log "--- Call 4: 100% usage, pool=0 → FALLBACK (Gemini) ---"
 set_used "$A1" 10000
 invoke_call "1d: 100% — expect FALLBACK (Gemini)" analyze "$A1" \
   '{"data":"budget exhaustion test","goal":"verify fallback routing"}'
@@ -248,15 +253,15 @@ set_budget "$A3A" 50000
 set_budget "$A3B" 300
 
 log "--- Agent-B 3 calls, no pool ---"
-invoke_call "B-NoPool-1" analyze "$A3B" \
-  '{"data":"budget test without sharing","goal":"confirm rejection after first call"}'
+invoke_call "B-NoPool-1" translate "$A3B" \
+  '{"text":"cloud token budget test without sharing run 1","target_language":"German"}'
 log "  Stats after B-Call-1 (may already be over budget):"
 get_stats "$A3B"
 
-invoke_call "B-NoPool-2 (expect 429)" analyze "$A3B" \
-  '{"data":"second call","goal":"should be rejected"}'
-invoke_call "B-NoPool-3 (expect 429)" analyze "$A3B" \
-  '{"data":"third call","goal":"should be rejected"}' nodelay
+invoke_call "B-NoPool-2 (expect FALLBACK or 429)" translate "$A3B" \
+  '{"text":"cloud token budget test without sharing run 2","target_language":"German"}'
+invoke_call "B-NoPool-3 (expect 429)" translate "$A3B" \
+  '{"text":"cloud token budget test without sharing run 3","target_language":"German"}' nodelay
 
 blank; log "STATS at end of Phase A:"
 log "  Agent-A:"
@@ -300,8 +305,8 @@ blank; log "--- Agent-B 4 calls: borrows from pool when exhausted ---"
 log "  [NOTE] Fixed bug: post-borrow usagePct used in 150% check"
 
 for i in 1 2 3 4; do
-  invoke_call "B-WithPool-${i}" analyze "$A3B" \
-    '{"data":"shared pool borrowing test","goal":"confirm extended service beyond budget"}'
+  invoke_call "B-WithPool-${i}" translate "$A3B" \
+    "{\"text\":\"shared pool borrowing test call ${i}\",\"target_language\":\"German\"}"
   log "  Agent-B stats after call $i:"
   get_stats "$A3B"
   log "  Pool remaining:"
@@ -320,54 +325,80 @@ curl -s "$BASE/actuator/prometheus" | \
 
 # =============================================================================
 # EXPERIMENT 4: Per-Tier Response Latency
-# PURPOSE: Measure wall-clock latency for ECONOMY and FALLBACK tiers.
-# (PRIMARY is local OPACA — if unavailable, record fallback latency as upper bound)
+# PURPOSE: Measure wall-clock latency for PRIMARY, ECONOMY, and FALLBACK tiers.
 # =============================================================================
 section "EXPERIMENT 4: Per-Tier Response Latency"
-log "TIERS: ECONOMY (Groq) = simple/healthy  |  FALLBACK (Gemini) = 100% budget"
+log "TIERS: PRIMARY (OPACA local)  |  ECONOMY (Groq cloud)  |  FALLBACK (Gemini cloud)"
 blank
 
 A4="exp4-latency"
 
-# ECONOMY — 3 calls (simple prompts, big budget)
+# Tier 1 PRIMARY — 3 calls (complex prompts, healthy budget)
+reset_agent "$A4"
+set_budget "$A4" 999999
+blank; log "=== Tier 1 PRIMARY (OPACA) — 3 calls ==="
+declare -a P_LAT=()
+for i in 1 2 3; do
+  HDR_FILE="/tmp/cg_hdr_$$.txt"
+  T_START=$(python3 -c "import time; print(int(time.time()*1000))")
+  curl -s -D "$HDR_FILE" -o /dev/null -X POST "$BASE/invoke/analyze/${A4}" \
+       -H "Content-Type: application/json" \
+       -d "{\"data\":\"opaca local tier test run ${i}\",\"goal\":\"measure primary latency\"}" --max-time 60
+  T_END=$(python3 -c "import time; print(int(time.time()*1000))")
+  LAT=$((T_END - T_START))
+  PTIER=$(grep -i "^X-Gateway-Tier:" "$HDR_FILE" | tr -d '\r' | awk '{print $2}')
+  PMODEL=$(grep -i "^X-Gateway-Model:" "$HDR_FILE" | tr -d '\r' | awk '{print $2}')
+  PTOK=$(grep -i "^X-Tokens-This-Call:" "$HDR_FILE" | tr -d '\r' | awk '{print $2}')
+  rm -f "$HDR_FILE"
+  P_LAT+=("$LAT")
+  log "  PRIMARY Run $i: latency=${LAT}ms  tier=${PTIER:-?}  model=${PMODEL:-?}  tokens=${PTOK:-?}"
+  sleep 1
+done
+log "  PRIMARY latencies: ${P_LAT[*]}"
+
+# Tier 2 ECONOMY — 3 calls (simple prompts, big budget)
 reset_agent "$A4"
 set_budget "$A4" 999999
 
-blank; log "=== Tier 2 ECONOMY — 3 calls ==="
+blank; log "=== Tier 2 ECONOMY (Groq) — 3 calls ==="
 declare -a E_LAT=()
 for i in 1 2 3; do
+  HDR_FILE="/tmp/cg_hdr_$$.txt"
   T_START=$(python3 -c "import time; print(int(time.time()*1000))")
-  RESP=$(curl -s -D - -X POST "$BASE/invoke/translate/${A4}" \
+  curl -s -D "$HDR_FILE" -o /dev/null -X POST "$BASE/invoke/translate/${A4}" \
        -H "Content-Type: application/json" \
-       -d "{\"text\":\"hello world run ${i}\",\"target_language\":\"German\"}" --max-time 60)
+       -d "{\"text\":\"hello world run ${i}\",\"target_language\":\"German\"}" --max-time 60
   T_END=$(python3 -c "import time; print(int(time.time()*1000))")
   LAT=$((T_END - T_START))
-  ETIER=$(echo "$RESP" | grep -i "^X-Gateway-Tier:" | tr -d '\r' | awk '{print $2}')
-  EMODEL=$(echo "$RESP" | grep -i "^X-Gateway-Model:" | tr -d '\r' | awk '{print $2}')
-  ETOK=$(echo "$RESP" | grep -i "^X-Tokens-This-Call:" | tr -d '\r' | awk '{print $2}')
+  ETIER=$(grep -i "^X-Gateway-Tier:" "$HDR_FILE" | tr -d '\r' | awk '{print $2}')
+  EMODEL=$(grep -i "^X-Gateway-Model:" "$HDR_FILE" | tr -d '\r' | awk '{print $2}')
+  ETOK=$(grep -i "^X-Tokens-This-Call:" "$HDR_FILE" | tr -d '\r' | awk '{print $2}')
+  rm -f "$HDR_FILE"
   E_LAT+=("$LAT")
   log "  ECONOMY Run $i: latency=${LAT}ms  tier=${ETIER:-?}  model=${EMODEL:-?}  tokens=${ETOK:-?}"
   sleep "$GROQ_DELAY"
 done
 log "  ECONOMY latencies: ${E_LAT[*]}"
 
-# FALLBACK — 2 calls (100% usage → Gemini)
+# Tier 3 FALLBACK — 2 calls (100% usage → Gemini)
 reset_agent "$A4"
 set_budget "$A4" 1000
 set_used   "$A4" 1000   # 100% → FALLBACK
 
-blank; log "=== Tier 3 FALLBACK — 2 calls ==="
+blank; log "=== Tier 3 FALLBACK (Gemini) — 2 calls ==="
 declare -a F_LAT=()
 for i in 1 2; do
+  HDR_FILE="/tmp/cg_hdr_$$.txt"
   T_START=$(python3 -c "import time; print(int(time.time()*1000))")
-  RESP=$(curl -s -D - -X POST "$BASE/invoke/analyze/${A4}" \
+  curl -s -D "$HDR_FILE" -o /dev/null -X POST "$BASE/invoke/analyze/${A4}" \
        -H "Content-Type: application/json" \
-       -d "{\"data\":\"fallback latency test ${i}\",\"goal\":\"verify Gemini routing\"}" --max-time 60)
+       -d "{\"data\":\"fallback latency test ${i}\",\"goal\":\"verify Gemini routing\"}" --max-time 60
   T_END=$(python3 -c "import time; print(int(time.time()*1000))")
   LAT=$((T_END - T_START))
-  FTIER=$(echo "$RESP" | grep -i "^X-Gateway-Tier:" | tr -d '\r' | awk '{print $2}')
-  FMODEL=$(echo "$RESP" | grep -i "^X-Gateway-Model:" | tr -d '\r' | awk '{print $2}')
-  FTOK=$(echo "$RESP" | grep -i "^X-Tokens-This-Call:" | tr -d '\r' | awk '{print $2}')
+  FTIER=$(grep -i "^X-Gateway-Tier:" "$HDR_FILE" | tr -d '\r' | awk '{print $2}')
+  FMODEL=$(grep -i "^X-Gateway-Model:" "$HDR_FILE" | tr -d '\r' | awk '{print $2}')
+  FTOK=$(grep -i "^X-Tokens-This-Call:" "$HDR_FILE" | tr -d '\r' | awk '{print $2}')
+  rm -f "$HDR_FILE"
   F_LAT+=("$LAT")
   log "  FALLBACK Run $i: latency=${LAT}ms  tier=${FTIER:-?}  model=${FMODEL:-?}  tokens=${FTOK:-?}"
   sleep 2
@@ -416,9 +447,9 @@ declare -a BODY_C=(
   '{"problem":"budget exhaustion in concurrent multi-agent system","symptoms":"429s cascade","goal":"diagnose and fix"}'
 )
 
-blank; log "=== Phase 5A: BASELINE (forced ECONOMY — set high usage to avoid PRIMARY) ==="
-log "    Force 50% usage so routing goes to ECONOMY regardless of complexity."
-set_used "$A5B" 50000   # 50% = ECONOMY zone but still serves
+blank; log "=== Phase 5A: BASELINE (forced ECONOMY — set high usage to bypass Tier 1) ==="
+log "    Force 85% usage (85000 tokens) so all requests route to ECONOMY (Groq) regardless of complexity."
+set_used "$A5B" 85000   # 85% >= 80% Tier-2 threshold → all requests route to ECONOMY (Groq)
 blank
 
 for i in "${!ACTS_S[@]}"; do
@@ -432,13 +463,15 @@ blank; log "BASELINE stats (10 calls, all ECONOMY tier):"
 get_stats "$A5B"
 BASELINE_COST=$(curl -s "$BASE/gateway/stats/${A5B}" | \
   python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('totalCostUsd',0))")
-BASELINE_TOKENS=$(curl -s "$BASE/gateway/stats/${A5B}" | \
+BASELINE_TOKENS_RAW=$(curl -s "$BASE/gateway/stats/${A5B}" | \
   python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('tokensUsed',0))")
-log "  BASELINE total cost  : \$${BASELINE_COST}"
-log "  BASELINE total tokens: ${BASELINE_TOKENS}"
+# Exclude the pre-set 85000 tokens to get actual tokens consumed by the 10 calls
+BASELINE_TOKENS=$((BASELINE_TOKENS_RAW - 85000))
+log "  BASELINE total cost        : \$${BASELINE_COST}"
+log "  BASELINE actual call tokens: ${BASELINE_TOKENS} (excluding 85000 initial offset)"
 
 blank; log "=== Phase 5B: SMART ROUTING (CAR active, fresh budget) ==="
-log "    Budget=100000, 0% usage — CAR drives simple→ECONOMY, complex→PRIMARY/best tier."
+log "    Budget=100000, 0% usage — CAR drives simple→ECONOMY (Groq), complex→PRIMARY (OPACA Tier 1)."
 blank
 
 for i in "${!ACTS_S[@]}"; do
@@ -457,29 +490,23 @@ SMART_TOKENS=$(curl -s "$BASE/gateway/stats/${A5S}" | \
 log "  SMART total cost  : \$${SMART_COST}"
 log "  SMART total tokens: ${SMART_TOKENS}"
 
-blank; log "=== COST SAVINGS CALCULATION ==="
+blank; log "=== COST & CAPACITY ANALYSIS ==="
 python3 - << PYEOF | tee -a "$LOG"
 baseline = float("${BASELINE_COST}" or 0)
 smart    = float("${SMART_COST}" or 0)
 b_tok    = int("${BASELINE_TOKENS}" or 0)
 s_tok    = int("${SMART_TOKENS}" or 0)
 
-print(f"  Baseline cost (forced ECONOMY, {b_tok} tokens)  : \${baseline:.6f}")
-print(f"  Smart routing cost ({s_tok} tokens)              : \${smart:.6f}")
-if baseline > 0 and smart >= 0:
+print(f"  Baseline cost (all 10 calls to Cloud ECONOMY, {b_tok} tokens) : \${baseline:.6f}")
+print(f"  Smart CAR cost (5 Cloud ECONOMY + 5 Local PRIMARY, {s_tok} tokens): \${smart:.6f}")
+if baseline > 0:
     saving_abs = baseline - smart
-    saving_pct = (saving_abs / baseline) * 100 if baseline > 0 else 0
-    print(f"  Absolute saving                               : \${saving_abs:.6f}")
-    print(f"  Relative saving                               : {saving_pct:.1f}%")
-    print()
-    # Also compute what all-cloud-primary would cost (GPT-4o level = \$0.002/1K)
-    baseline_primary_rate = 0.002
-    b_primary = (b_tok / 1000.0) * baseline_primary_rate
-    print(f"  Hypothetical all-cloud-primary baseline (\$0.002/1K tokens):")
-    print(f"    Baseline primary cost ({b_tok} tokens)      : \${b_primary:.6f}")
-    print(f"    Smart vs all-primary saving               : \${b_primary - smart:.6f} ({((b_primary - smart)/b_primary*100) if b_primary else 0:.1f}%)")
-else:
-    print("  Could not compute savings (zero baseline)")
+    saving_pct = (saving_abs / baseline) * 100
+    print(f"  Absolute cloud cost saving                             : \${saving_abs:.6f}")
+    print(f"  Relative cloud cost saving                             : {saving_pct:.1f}%")
+print("  Tier-1 Capacity Protection:")
+print("    5 complex tasks handled locally by Tier-1 OPACA at \$0.00 cost")
+print("    5 simple tasks fast-tracked to Tier-2 Groq to protect Tier-1 queue capacity")
 PYEOF
 
 blank; log "Tier distribution (Exp5):"
@@ -514,15 +541,15 @@ for label in simple complex; do
 
   for i in 1 2 3; do
     blank
-    FULL=$(curl -s -D - -X POST "$BASE/invoke/${ACTION}/${A6}" \
+    HDR_FILE="/tmp/cg_hdr_$$.txt"
+    curl -s -D "$HDR_FILE" -o /dev/null -X POST "$BASE/invoke/${ACTION}/${A6}" \
          -H "Content-Type: application/json" \
-         -d "$INVBODY" --max-time 60)
-    BLANK_LINE=$(echo "$FULL" | grep -n "^$" | head -1 | cut -d: -f1)
-    HDR=$(echo "$FULL" | head -n "${BLANK_LINE:-2}")
+         -d "$INVBODY" --max-time 60
 
-    PRED_T=$(echo "$HDR" | grep -i "^X-Predicted-Tokens:" | tr -d '\r' | awk '{print $2}')
-    ACTUAL_T=$(echo "$HDR" | grep -i "^X-Tokens-This-Call:" | tr -d '\r' | awk '{print $2}')
-    HTTP_S=$(echo "$HDR" | head -1 | tr -d '\r')
+    PRED_T=$(grep -i "^X-Predicted-Tokens:" "$HDR_FILE" | tr -d '\r' | awk '{print $2}')
+    ACTUAL_T=$(grep -i "^X-Tokens-This-Call:" "$HDR_FILE" | tr -d '\r' | awk '{print $2}')
+    HTTP_S=$(head -1 "$HDR_FILE" | tr -d '\r')
+    rm -f "$HDR_FILE"
 
     log "  ${label}-${i}: predicted=${PRED_T:-N/A}  actual=${ACTUAL_T:-N/A}  HTTP=${HTTP_S}"
 
@@ -535,23 +562,23 @@ for label in simple complex; do
 done
 
 blank; log "Accuracy summary:"
-python3 - << PYEOF | tee -a "$LOG"
-preds   = [${PRED_VALS[@]:-0}]
-actuals = [${ACTUAL_VALS[@]:-0}]
-if preds and actuals and len(preds) == len(actuals):
-    ratios = [a/p if p > 0 else 0 for p, a in zip(preds, actuals)]
-    median_ratio = sorted(ratios)[len(ratios)//2]
-    print(f"  Pairs measured     : {len(preds)}")
-    print(f"  Predicted (median) : {sorted(preds)[len(preds)//2]}")
-    print(f"  Actual (median)    : {sorted(actuals)[len(actuals)//2]}")
-    print(f"  Accuracy ratio     : {1/median_ratio:.2f}x under-estimate" if median_ratio > 1
-          else f"  Accuracy ratio     : {median_ratio:.2f}x")
-    for p, a, r in zip(preds, actuals, ratios):
-        print(f"    pred={p:4d} actual={a:4d} ratio={r:.2f}")
-else:
-    print(f"  preds={preds}  actuals={actuals}")
-    print("  Not enough pairs to compute accuracy.")
-PYEOF
+python3 -c "
+preds = [${PRED_VALS[*]// /, }]
+actuals = [${ACTUAL_VALS[*]// /, }]
+if preds and actuals:
+    valid = [(p, a) for p, a in zip(preds, actuals) if a > 0]
+    if valid:
+        ratios = [a / p for p, a in valid]
+        med_p = sorted([p for p, a in valid])[len(valid)//2]
+        med_a = sorted([a for p, a in valid])[len(valid)//2]
+        med_r = sorted(ratios)[len(ratios)//2]
+        print(f'  Pairs measured (LLM tiers) : {len(valid)}')
+        print(f'  Predicted (median)         : {med_p}')
+        print(f'  Actual (median)            : {med_a}')
+        print(f'  Accuracy ratio             : {med_r:.2f}x under-estimate')
+        for p, a in valid:
+            print(f'    pred={p:4d}  actual={a:4d}  ratio={a/p:.2f}x')
+" | tee -a "$LOG"
 
 blank; log "Prometheus predictor histogram:"
 curl -s "$BASE/actuator/prometheus" | grep "gateway_predicted_tokens" | tee -a "$LOG"

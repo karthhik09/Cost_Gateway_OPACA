@@ -181,7 +181,10 @@ public class TokenTrackingService {
         redis.delete(key(KEY_COST_USD, agentId));
         redis.delete(key(KEY_REQ_TOTAL, agentId));
         redis.delete(key(KEY_REQ_THROTTLED, agentId));
-        log.info("Agent [{}]: usage counters reset", agentId);
+        // Also clear per-window DBS flags so reruns within the same hour behave cleanly
+        redis.delete(String.format("agent:%s:pool:donated_window", agentId));
+        redis.delete(String.format("agent:%s:pool:borrowed_window", agentId));
+        log.info("Agent [{}]: usage counters and DBS window flags reset", agentId);
     }
 
     /**
