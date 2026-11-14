@@ -1,589 +1,491 @@
 {
-  "title": "OPACA Cost-Aware Gateway",
-  "uid": "opaca-gw-v1",
-  "version": 2,
-  "schemaVersion": 39,
-  "refresh": "10s",
-  "timezone": "browser",
-  "time": { "from": "now-1h", "to": "now" },
-  "tags": ["opaca", "llm", "cost", "gateway"],
-  "graphTooltip": 1,
-  "fiscalYearStartMonth": 0,
-  "links": [],
+  "__inputs": [],
+  "__requires": [
+    { "type": "grafana", "id": "grafana", "name": "Grafana", "version": "10.4.1" },
+    { "type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0" },
+    { "type": "panel", "id": "stat", "name": "Stat", "version": "" },
+    { "type": "panel", "id": "piechart", "name": "Pie chart", "version": "" },
+    { "type": "panel", "id": "timeseries", "name": "Time series", "version": "" },
+    { "type": "panel", "id": "barchart", "name": "Bar chart", "version": "" },
+    { "type": "panel", "id": "gauge", "name": "Gauge", "version": "" }
+  ],
   "annotations": { "list": [] },
-  "templating": {
-    "list": [
-      {
-        "name": "agent",
-        "label": "Agent",
-        "type": "query",
-        "datasource": { "type": "prometheus", "uid": "default" },
-        "query": "label_values(gateway_tokens_used_total, agent)",
-        "refresh": 2,
-        "includeAll": true,
-        "allValue": ".*",
-        "multi": false,
-        "current": {}
-      }
-    ]
-  },
+  "description": "Cost-Aware Multi-Agent Orchestration — System Overview",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
   "panels": [
 
     {
       "id": 1,
-      "type": "row",
-      "title": "Overview",
-      "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }
+      "type": "stat",
+      "title": "Total requests",
+      "gridPos": { "x": 0, "y": 0, "w": 8, "h": 4 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "text": {}
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "text", "value": null }
+            ]
+          },
+          "mappings": [],
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(gateway_tier_distribution_total) or vector(0)",
+          "legendFormat": "",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "datasource": { "type": "prometheus", "uid": "prometheus" }
     },
 
     {
       "id": 2,
       "type": "stat",
-      "title": "Total Requests",
-      "description": "All invocations handled by the gateway in the selected window",
-      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
-      "datasource": { "type": "prometheus", "uid": "default" },
+      "title": "Token usage",
+      "gridPos": { "x": 8, "y": 0, "w": 8, "h": 4 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "text": {}
+      },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "text", "value": null }
+            ]
+          },
+          "mappings": [],
           "unit": "short",
-          "mappings": []
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(gateway_tokens_used_total) or vector(0)",
+          "legendFormat": "",
+          "instant": true,
+          "refId": "A"
         }
-      },
-      "options": {
-        "reduceOptions": { "calcs": ["sum"] },
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "textMode": "auto"
-      },
-      "targets": [{
-        "expr": "sum(increase(gateway_requests_total[1h]))",
-        "legendFormat": "Requests",
-        "refId": "A"
-      }]
+      ],
+      "datasource": { "type": "prometheus", "uid": "prometheus" }
     },
 
     {
       "id": 3,
       "type": "stat",
-      "title": "429 Throttle Events",
-      "description": "Requests rejected because token budget was exhausted",
-      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
-      "datasource": { "type": "prometheus", "uid": "default" },
+      "title": "Budget utilization",
+      "gridPos": { "x": 16, "y": 0, "w": 8, "h": 4 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "text": {}
+      },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "thresholds" },
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
               { "color": "green", "value": null },
-              { "color": "yellow", "value": 1 },
-              { "color": "red", "value": 10 }
+              { "color": "yellow", "value": 70 },
+              { "color": "red", "value": 90 }
             ]
           },
-          "unit": "short"
+          "mappings": [],
+          "unit": "percent",
+          "decimals": 1,
+          "max": 100,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "(sum(gateway_tokens_used_total) / 10000) * 100 or vector(0)",
+          "legendFormat": "",
+          "instant": true,
+          "refId": "A"
         }
-      },
-      "options": {
-        "reduceOptions": { "calcs": ["sum"] },
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "auto"
-      },
-      "targets": [{
-        "expr": "sum(increase(gateway_throttle_events_total[1h]))",
-        "legendFormat": "429s",
-        "refId": "A"
-      }]
+      ],
+      "datasource": { "type": "prometheus", "uid": "prometheus" }
     },
 
     {
       "id": 4,
-      "type": "stat",
-      "title": "Total Tokens Used",
-      "description": "Cumulative tokens across all agents this window",
-      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
-      "datasource": { "type": "prometheus", "uid": "default" },
+      "type": "piechart",
+      "title": "1. Request distribution by tier",
+      "description": "Shows how the routing strategy distributes requests across the three tiers.",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 10 },
+      "options": {
+        "pieType": "donut",
+        "displayLabels": [],
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "values": ["percent"]
+        },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "thresholds" },
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "purple", "value": null }] },
+          "color": { "mode": "palette-classic" },
+          "mappings": [],
           "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "ECONOMY" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "#37872D", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "FALLBACK" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "#E05F00", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "PRIMARY" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "#1F60C4", "mode": "fixed" } }]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(gateway_tier_distribution_total) by (tier)",
+          "legendFormat": "{{tier}}",
+          "instant": true,
+          "refId": "A"
         }
-      },
-      "options": {
-        "reduceOptions": { "calcs": ["sum"] },
-        "colorMode": "background",
-        "graphMode": "area"
-      },
-      "targets": [{
-        "expr": "sum(increase(gateway_tokens_used_total[1h]))",
-        "legendFormat": "Tokens",
-        "refId": "A"
-      }]
+      ],
+      "datasource": { "type": "prometheus", "uid": "prometheus" }
     },
 
     {
       "id": 5,
-      "type": "stat",
-      "title": "Estimated Cost (USD)",
-      "description": "Total estimated LLM API cost this window",
-      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
-      "datasource": { "type": "prometheus", "uid": "default" },
+      "type": "timeseries",
+      "title": "2. Token consumption over time",
+      "description": "Shows whether token consumption is increasing steadily or approaching the budget limit.",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 10 },
+      "options": {
+        "tooltip": { "mode": "single", "sort": "none" },
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "fillOpacity": 15,
+        "gradientMode": "none",
+        "lineWidth": 2,
+        "pointSize": 5,
+        "showPoints": "auto",
+        "spanNulls": false
+      },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "thresholds" },
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "gradientMode": "none",
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "linear",
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
           "thresholds": {
             "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 0.10 },
-              { "color": "red", "value": 0.50 }
-            ]
+            "steps": [{ "color": "green", "value": null }]
           },
-          "unit": "currencyUSD",
-          "decimals": 4
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(increase(gateway_tokens_used_total[1m]))",
+          "legendFormat": "Tokens / min",
+          "refId": "A"
         }
-      },
-      "options": {
-        "reduceOptions": { "calcs": ["sum"] },
-        "colorMode": "background",
-        "graphMode": "area"
-      },
-      "targets": [{
-        "expr": "sum(increase(gateway_cost_usd_total[1h]))",
-        "legendFormat": "Cost USD",
-        "refId": "A"
-      }]
+      ],
+      "datasource": { "type": "prometheus", "uid": "prometheus" }
     },
 
     {
       "id": 6,
-      "type": "stat",
-      "title": "P95 Latency",
-      "description": "95th percentile gateway invoke latency",
-      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 1 },
-      "datasource": { "type": "prometheus", "uid": "default" },
+      "type": "gauge",
+      "title": "3. Budget utilization",
+      "description": "A clear indicator of the current budget consumption.",
+      "gridPos": { "x": 0, "y": 14, "w": 24, "h": 5 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "horizontal",
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "text": {}
+      },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "thresholds" },
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
               { "color": "green", "value": null },
-              { "color": "yellow", "value": 1000 },
-              { "color": "red", "value": 5000 }
+              { "color": "yellow", "value": 7000 },
+              { "color": "red", "value": 9000 }
             ]
           },
-          "unit": "ms",
-          "decimals": 0
+          "mappings": [],
+          "unit": "short",
+          "decimals": 0,
+          "min": 0,
+          "max": 10000,
+          "displayName": "Used budget"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(gateway_tokens_used_total) or vector(0)",
+          "legendFormat": "Used budget",
+          "instant": true,
+          "refId": "A"
         }
-      },
-      "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"] },
-        "colorMode": "background",
-        "graphMode": "area"
-      },
-      "targets": [{
-        "expr": "histogram_quantile(0.95, sum(rate(gateway_invoke_duration_seconds_bucket[5m])) by (le)) * 1000",
-        "legendFormat": "p95",
-        "refId": "A"
-      }]
+      ],
+      "datasource": { "type": "prometheus", "uid": "prometheus" }
     },
 
     {
       "id": 7,
-      "type": "stat",
-      "title": "Active Agents",
-      "description": "Number of distinct agents seen in the last hour",
-      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
-      "datasource": { "type": "prometheus", "uid": "default" },
-      "fieldConfig": {
-        "defaults": {
-          "color": { "mode": "thresholds" },
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "teal", "value": null }] },
-          "unit": "short"
-        }
-      },
+      "type": "barchart",
+      "title": "4. Average response latency by tier",
+      "description": "Illustrates the latency difference between tiers (PRIMARY < ECONOMY < FALLBACK).",
+      "gridPos": { "x": 0, "y": 19, "w": 12, "h": 10 },
       "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"] },
-        "colorMode": "background",
-        "graphMode": "none"
+        "barWidth": 0.6,
+        "groupWidth": 0.7,
+        "fillOpacity": 80,
+        "gradientMode": "none",
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": false },
+        "orientation": "auto",
+        "showValue": "auto",
+        "stacking": "none",
+        "tooltip": { "mode": "single", "sort": "none" },
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 100
       },
-      "targets": [{
-        "expr": "count(count by (agent)(gateway_tokens_used_total))",
-        "legendFormat": "Agents",
-        "refId": "A"
-      }]
-    },
-
-    {
-      "id": 10,
-      "type": "row",
-      "title": "Token Usage & Budget",
-      "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 }
-    },
-
-    {
-      "id": 11,
-      "type": "timeseries",
-      "title": "Tokens Used Per Agent",
-      "description": "Rolling token consumption per agent. Spike → tier downgrade or 429.",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
-      "datasource": { "type": "prometheus", "uid": "default" },
       "fieldConfig": {
         "defaults": {
-          "custom": { "lineWidth": 2, "fillOpacity": 12, "drawStyle": "line", "spanNulls": false },
-          "unit": "short",
-          "color": { "mode": "palette-classic" }
+          "color": { "fixedColor": "#1F60C4", "mode": "fixed" },
+          "custom": {
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineWidth": 1
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "blue", "value": null }]
+          },
+          "unit": "ms",
+          "decimals": 0
         },
         "overrides": []
       },
-      "options": {
-        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["sum", "lastNotNull"] },
-        "tooltip": { "mode": "multi", "sort": "desc" }
-      },
-      "targets": [{
-        "expr": "sum by (agent)(increase(gateway_tokens_used_total{agent=~\"$agent\"}[1m]))",
-        "legendFormat": "{{ agent }}",
-        "refId": "A"
-      }]
-    },
-
-    {
-      "id": 12,
-      "type": "bargauge",
-      "title": "Budget Usage % Per Agent",
-      "description": "Current window token usage as % of budget. Red = over budget (causing 429s or tier downgrade).",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
-      "datasource": { "type": "prometheus", "uid": "default" },
-      "fieldConfig": {
-        "defaults": {
-          "color": { "mode": "thresholds" },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green",  "value": null },
-              { "color": "yellow", "value": 80 },
-              { "color": "orange", "value": 100 },
-              { "color": "red",    "value": 150 }
-            ]
-          },
-          "unit": "percent",
-          "max": 200,
-          "min": 0
-        }
-      },
-      "options": {
-        "orientation": "horizontal",
-        "reduceOptions": { "calcs": ["lastNotNull"] },
-        "displayMode": "gradient",
-        "showUnfilled": true,
-        "valueMode": "color",
-        "text": {}
-      },
-      "targets": [{
-        "expr": "gateway_budget_usage_percent{agent=~\"$agent\"}",
-        "legendFormat": "{{ agent }}",
-        "refId": "A"
-      }]
-    },
-
-    {
-      "id": 20,
-      "type": "row",
-      "title": "Tier Routing & 429 Events",
-      "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 }
-    },
-
-    {
-      "id": 21,
-      "type": "timeseries",
-      "title": "Tier Distribution Over Time",
-      "description": "Calls per tier per minute. Rising ECONOMY/FALLBACK = agents hitting budget limits.",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 15 },
-      "datasource": { "type": "prometheus", "uid": "default" },
-      "fieldConfig": {
-        "defaults": {
-          "custom": { "lineWidth": 2, "fillOpacity": 15, "stacking": { "mode": "none" } },
-          "unit": "reqps",
-          "color": { "mode": "palette-classic" }
-        },
-        "overrides": [
-          { "matcher": { "id": "byName", "options": "PRIMARY" },   "properties": [{ "id": "color", "value": { "fixedColor": "#73BF69", "mode": "fixed" } }] },
-          { "matcher": { "id": "byName", "options": "ECONOMY" },   "properties": [{ "id": "color", "value": { "fixedColor": "#FADE2A", "mode": "fixed" } }] },
-          { "matcher": { "id": "byName", "options": "FALLBACK" },  "properties": [{ "id": "color", "value": { "fixedColor": "#FF9830", "mode": "fixed" } }] }
-        ]
-      },
-      "options": {
-        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["sum", "lastNotNull"] },
-        "tooltip": { "mode": "multi", "sort": "desc" }
-      },
-      "targets": [{
-        "expr": "sum by (tier)(rate(gateway_tier_distribution_total{agent=~\"$agent\"}[1m]))",
-        "legendFormat": "{{ tier }}",
-        "refId": "A"
-      }]
-    },
-
-    {
-      "id": 22,
-      "type": "timeseries",
-      "title": "HTTP 429 Throttle Events",
-      "description": "Hard budget rejections (token usage ≥ 150%). Each spike = agents fully out of budget.",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 15 },
-      "datasource": { "type": "prometheus", "uid": "default" },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "lineWidth": 2,
-            "fillOpacity": 20,
-            "drawStyle": "bars",
-            "barAlignment": 0
-          },
-          "color": { "fixedColor": "#F2495C", "mode": "fixed" },
-          "unit": "short"
-        }
-      },
-      "options": {
-        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["sum"] },
-        "tooltip": { "mode": "multi" }
-      },
-      "targets": [{
-        "expr": "sum by (agent)(increase(gateway_throttle_events_total{agent=~\"$agent\"}[1m]))",
-        "legendFormat": "{{ agent }}",
-        "refId": "A"
-      }]
-    },
-
-    {
-      "id": 23,
-      "type": "piechart",
-      "title": "Tier Share (Total)",
-      "description": "Proportion of requests served by each tier in the selected time range",
-      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 23 },
-      "datasource": { "type": "prometheus", "uid": "default" },
-      "fieldConfig": {
-        "defaults": {
-          "color": { "mode": "palette-classic" },
-          "unit": "short"
-        },
-        "overrides": [
-          { "matcher": { "id": "byName", "options": "PRIMARY" },  "properties": [{ "id": "color", "value": { "fixedColor": "#73BF69", "mode": "fixed" } }] },
-          { "matcher": { "id": "byName", "options": "ECONOMY" },  "properties": [{ "id": "color", "value": { "fixedColor": "#FADE2A", "mode": "fixed" } }] },
-          { "matcher": { "id": "byName", "options": "FALLBACK" }, "properties": [{ "id": "color", "value": { "fixedColor": "#FF9830", "mode": "fixed" } }] }
-        ]
-      },
-      "options": {
-        "pieType": "donut",
-        "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] },
-        "tooltip": { "mode": "single" }
-      },
-      "targets": [{
-        "expr": "sum by (tier)(increase(gateway_tier_distribution_total{agent=~\"$agent\"}[1h]))",
-        "legendFormat": "{{ tier }}",
-        "refId": "A"
-      }]
-    },
-
-    {
-      "id": 24,
-      "type": "table",
-      "title": "Per-Agent Summary",
-      "description": "Current stats for each agent — tokens, requests, throttles, and active tier",
-      "gridPos": { "h": 8, "w": 16, "x": 8, "y": 23 },
-      "datasource": { "type": "prometheus", "uid": "default" },
-      "fieldConfig": {
-        "defaults": { "unit": "short" },
-        "overrides": [
-          { "matcher": { "id": "byName", "options": "Tokens" },    "properties": [{ "id": "unit", "value": "short" }] },
-          { "matcher": { "id": "byName", "options": "Cost (USD)" },"properties": [{ "id": "unit", "value": "currencyUSD" }, { "id": "decimals", "value": 4 }] },
-          { "matcher": { "id": "byName", "options": "Throttles" }, "properties": [{ "id": "custom.displayMode", "value": "color-background" }, { "id": "thresholds", "value": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } }] }
-        ]
-      },
-      "options": {
-        "sortBy": [{ "desc": true, "displayName": "Tokens" }],
-        "footer": { "show": false }
-      },
-      "transformations": [
-        { "id": "merge", "options": {} },
-        {
-          "id": "organize",
-          "options": {
-            "renameByName": {
-              "agent": "Agent",
-              "Value #Tokens": "Tokens",
-              "Value #Throttles": "Throttles",
-              "Value #Cost": "Cost (USD)"
-            }
-          }
-        }
-      ],
       "targets": [
         {
-          "expr": "sum by (agent)(increase(gateway_tokens_used_total{agent=~\"$agent\"}[1h]))",
-          "legendFormat": "{{ agent }}",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(gateway_invoke_duration_seconds_sum) by (tier) / sum(gateway_invoke_duration_seconds_count) by (tier) * 1000",
+          "legendFormat": "{{tier}}",
           "instant": true,
-          "refId": "Tokens"
-        },
+          "refId": "A"
+        }
+      ],
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "transformations": [
         {
-          "expr": "sum by (agent)(increase(gateway_throttle_events_total{agent=~\"$agent\"}[1h]))",
-          "legendFormat": "{{ agent }}",
-          "instant": true,
-          "refId": "Throttles"
-        },
-        {
-          "expr": "sum by (agent)(increase(gateway_cost_usd_total{agent=~\"$agent\"}[1h]))",
-          "legendFormat": "{{ agent }}",
-          "instant": true,
-          "refId": "Cost"
+          "id": "labelsToFields",
+          "options": { "valueLabel": "tier" }
         }
       ]
     },
 
     {
-      "id": 30,
-      "type": "row",
-      "title": "Latency",
-      "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 31 }
-    },
-
-    {
-      "id": 31,
-      "type": "timeseries",
-      "title": "Invoke Latency Percentiles",
-      "description": "p50 = median response time, p95 = 95th percentile, p99 = worst 1% of calls. Breakout by tier shows which tier adds latency.",
-      "gridPos": { "h": 9, "w": 16, "x": 0, "y": 32 },
-      "datasource": { "type": "prometheus", "uid": "default" },
+      "id": 8,
+      "type": "barchart",
+      "title": "6. Predicted vs actual token consumption",
+      "description": "Demonstrates Predictive Token Costing (PTC) and prediction accuracy.",
+      "gridPos": { "x": 12, "y": 19, "w": 12, "h": 10 },
+      "options": {
+        "barWidth": 0.4,
+        "groupWidth": 0.75,
+        "fillOpacity": 80,
+        "gradientMode": "none",
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "orientation": "auto",
+        "showValue": "auto",
+        "stacking": "none",
+        "tooltip": { "mode": "multi", "sort": "none" },
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 80
+      },
       "fieldConfig": {
         "defaults": {
-          "custom": { "lineWidth": 2, "fillOpacity": 8 },
-          "unit": "ms",
-          "color": { "mode": "palette-classic" }
-        }
-      },
-      "options": {
-        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max", "lastNotNull"] },
-        "tooltip": { "mode": "multi", "sort": "desc" }
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineWidth": 1
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Predicted" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "#1F60C4", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Actual" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "#37872D", "mode": "fixed" } }]
+          }
+        ]
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum by (le, tier)(rate(gateway_invoke_duration_seconds_bucket{agent=~\"$agent\"}[2m]))) * 1000",
-          "legendFormat": "p50 {{ tier }}",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "gateway_predicted_tokens_summary_tokens{quantile=\"0.5\"}",
+          "legendFormat": "Predicted",
+          "instant": true,
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.95, sum by (le, tier)(rate(gateway_invoke_duration_seconds_bucket{agent=~\"$agent\"}[2m]))) * 1000",
-          "legendFormat": "p95 {{ tier }}",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(gateway_tokens_used_total) / sum(gateway_tier_distribution_total)",
+          "legendFormat": "Actual",
+          "instant": true,
           "refId": "B"
-        },
-        {
-          "expr": "histogram_quantile(0.99, sum by (le, tier)(rate(gateway_invoke_duration_seconds_bucket{agent=~\"$agent\"}[2m]))) * 1000",
-          "legendFormat": "p99 {{ tier }}",
-          "refId": "C"
         }
-      ]
+      ],
+      "datasource": { "type": "prometheus", "uid": "prometheus" }
     },
 
     {
-      "id": 32,
-      "type": "histogram",
-      "title": "Latency Distribution",
-      "description": "Frequency distribution of all invoke call durations",
-      "gridPos": { "h": 9, "w": 8, "x": 16, "y": 32 },
-      "datasource": { "type": "prometheus", "uid": "default" },
-      "fieldConfig": {
-        "defaults": {
-          "color": { "mode": "palette-classic" },
-          "unit": "ms"
-        }
-      },
+      "id": 9,
+      "type": "stat",
+      "title": "5. Shared token pool",
+      "description": "Demonstrates Dynamic Budget Sharing (DBS).",
+      "gridPos": { "x": 0, "y": 29, "w": 24, "h": 6 },
       "options": {
-        "bucketSize": "auto",
-        "fillOpacity": 60,
-        "gradientMode": "none",
-        "legend": { "displayMode": "list", "placement": "bottom" }
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "horizontal",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "text": {}
       },
-      "targets": [{
-        "expr": "sum by (le)(rate(gateway_invoke_duration_seconds_bucket[5m])) * 1000",
-        "legendFormat": "{{ le }}",
-        "refId": "A"
-      }]
-    },
-
-    {
-      "id": 40,
-      "type": "row",
-      "title": "Cost Analysis",
-      "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 41 }
-    },
-
-    {
-      "id": 41,
-      "type": "timeseries",
-      "title": "Estimated Cost Over Time (USD/min)",
-      "description": "Cost rate per minute. Economy/Fallback tiers should be visibly cheaper than Primary.",
-      "gridPos": { "h": 8, "w": 16, "x": 0, "y": 42 },
-      "datasource": { "type": "prometheus", "uid": "default" },
-      "fieldConfig": {
-        "defaults": {
-          "custom": { "lineWidth": 2, "fillOpacity": 10 },
-          "unit": "currencyUSD",
-          "decimals": 5,
-          "color": { "mode": "palette-classic" }
-        }
-      },
-      "options": {
-        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["sum", "mean"] },
-        "tooltip": { "mode": "multi" }
-      },
-      "targets": [{
-        "expr": "sum by (agent)(rate(gateway_cost_usd_total{agent=~\"$agent\"}[1m]))",
-        "legendFormat": "{{ agent }}",
-        "refId": "A"
-      }]
-    },
-
-    {
-      "id": 42,
-      "type": "bargauge",
-      "title": "Total Cost Per Agent (USD)",
-      "description": "Cumulative USD cost for each agent in the selected window",
-      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 42 },
-      "datasource": { "type": "prometheus", "uid": "default" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
           "thresholds": {
             "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 0.05 },
-              { "color": "red", "value": 0.20 }
-            ]
+            "steps": [{ "color": "text", "value": null }]
           },
-          "unit": "currencyUSD",
-          "decimals": 4
+          "mappings": [],
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "gateway_pool_size_tokens or vector(0)",
+          "legendFormat": "Available",
+          "instant": true,
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(gateway_pool_donated_tokens_total) or vector(0)",
+          "legendFormat": "Donated",
+          "instant": true,
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(gateway_pool_borrowed_tokens_total) or vector(0)",
+          "legendFormat": "Borrowed",
+          "instant": true,
+          "refId": "C"
         }
-      },
-      "options": {
-        "orientation": "horizontal",
-        "reduceOptions": { "calcs": ["sum"] },
-        "displayMode": "gradient",
-        "showUnfilled": true
-      },
-      "targets": [{
-        "expr": "sum by (agent)(increase(gateway_cost_usd_total{agent=~\"$agent\"}[1h]))",
-        "legendFormat": "{{ agent }}",
-        "refId": "A"
-      }]
+      ],
+      "datasource": { "type": "prometheus", "uid": "prometheus" }
     }
-  ]
+
+  ],
+  "refresh": "10s",
+  "schemaVersion": 38,
+  "tags": ["opaca", "cost-gateway"],
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Cost-Aware Multi-Agent Orchestration",
+  "uid": "opaca-cost-gateway",
+  "version": 1,
+  "weekStart": ""
 }

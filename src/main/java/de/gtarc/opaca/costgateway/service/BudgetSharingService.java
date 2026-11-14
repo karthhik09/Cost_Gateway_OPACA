@@ -2,7 +2,9 @@ package de.gtarc.opaca.costgateway.service;
 
 import de.gtarc.opaca.costgateway.config.GatewayConfig;
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -86,6 +88,16 @@ public class BudgetSharingService {
     private final StringRedisTemplate redis;
     private final GatewayConfig config;
     private final MeterRegistry meters;
+
+    // ── Gauge: expose pool size to Prometheus ──────────────────────────────────
+
+    @PostConstruct
+    void registerPoolGauge() {
+        Gauge.builder("gateway_pool_size_tokens", this,
+                        svc -> (double) svc.getPoolSize())
+                .description("Current size of the shared token pool in Redis")
+                .register(meters);
+    }
 
     // ── Pool seeding ───────────────────────────────────────────────────────────
 
