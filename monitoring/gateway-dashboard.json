@@ -29,28 +29,26 @@
         "textMode": "auto",
         "colorMode": "value",
         "graphMode": "none",
-        "justifyMode": "center",
-        "text": {}
+        "justifyMode": "center"
       },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
           "thresholds": {
             "mode": "absolute",
-            "steps": [
-              { "color": "text", "value": null }
-            ]
+            "steps": [{ "color": "text", "value": null }]
           },
           "mappings": [],
           "unit": "short",
-          "decimals": 0
+          "decimals": 0,
+          "noValue": "0"
         },
         "overrides": []
       },
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(gateway_tier_distribution_total) or vector(0)",
+          "expr": "sum(gateway_tier_distribution_total)",
           "legendFormat": "",
           "instant": true,
           "refId": "A"
@@ -70,28 +68,26 @@
         "textMode": "auto",
         "colorMode": "value",
         "graphMode": "none",
-        "justifyMode": "center",
-        "text": {}
+        "justifyMode": "center"
       },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
           "thresholds": {
             "mode": "absolute",
-            "steps": [
-              { "color": "text", "value": null }
-            ]
+            "steps": [{ "color": "text", "value": null }]
           },
           "mappings": [],
           "unit": "short",
-          "decimals": 0
+          "decimals": 0,
+          "noValue": "0"
         },
         "overrides": []
       },
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(gateway_tokens_used_total) or vector(0)",
+          "expr": "sum(gateway_tokens_used_total)",
           "legendFormat": "",
           "instant": true,
           "refId": "A"
@@ -111,8 +107,7 @@
         "textMode": "auto",
         "colorMode": "value",
         "graphMode": "none",
-        "justifyMode": "center",
-        "text": {}
+        "justifyMode": "center"
       },
       "fieldConfig": {
         "defaults": {
@@ -131,14 +126,15 @@
           "unit": "percent",
           "decimals": 1,
           "max": 100,
-          "min": 0
+          "min": 0,
+          "noValue": "0%"
         },
         "overrides": []
       },
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "(sum(gateway_tokens_used_total) / 10000) * 100 or vector(0)",
+          "expr": "avg(gateway_budget_usage_percent)",
           "legendFormat": "",
           "instant": true,
           "refId": "A"
@@ -222,7 +218,7 @@
             "gradientMode": "none",
             "axisCenteredZero": false,
             "axisColorMode": "text",
-            "axisLabel": "",
+            "axisLabel": "tokens/min",
             "axisPlacement": "auto",
             "drawStyle": "line",
             "hideFrom": { "legend": false, "tooltip": false, "viz": false },
@@ -258,14 +254,13 @@
       "id": 6,
       "type": "gauge",
       "title": "3. Budget utilization",
-      "description": "A clear indicator of the current budget consumption.",
+      "description": "A clear indicator of the current budget consumption. Max budget = 10,000 tokens per agent.",
       "gridPos": { "x": 0, "y": 14, "w": 24, "h": 5 },
       "options": {
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
         "orientation": "horizontal",
         "showThresholdLabels": false,
-        "showThresholdMarkers": true,
-        "text": {}
+        "showThresholdMarkers": true
       },
       "fieldConfig": {
         "defaults": {
@@ -285,14 +280,15 @@
           "decimals": 0,
           "min": 0,
           "max": 10000,
-          "displayName": "Used budget"
+          "displayName": "Used budget",
+          "noValue": "0"
         },
         "overrides": []
       },
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(gateway_tokens_used_total) or vector(0)",
+          "expr": "sum(gateway_tokens_used_total)",
           "legendFormat": "Used budget",
           "instant": true,
           "refId": "A"
@@ -335,7 +331,8 @@
             "steps": [{ "color": "blue", "value": null }]
           },
           "unit": "ms",
-          "decimals": 0
+          "decimals": 0,
+          "noValue": "0"
         },
         "overrides": []
       },
@@ -391,15 +388,16 @@
             "steps": [{ "color": "green", "value": null }]
           },
           "unit": "short",
-          "decimals": 0
+          "decimals": 0,
+          "noValue": "0"
         },
         "overrides": [
           {
-            "matcher": { "id": "byName", "options": "Predicted" },
+            "matcher": { "id": "byName", "options": "Predicted (p50)" },
             "properties": [{ "id": "color", "value": { "fixedColor": "#1F60C4", "mode": "fixed" } }]
           },
           {
-            "matcher": { "id": "byName", "options": "Actual" },
+            "matcher": { "id": "byName", "options": "Actual (avg)" },
             "properties": [{ "id": "color", "value": { "fixedColor": "#37872D", "mode": "fixed" } }]
           }
         ]
@@ -407,15 +405,15 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "gateway_predicted_tokens_summary_tokens{quantile=\"0.5\"}",
-          "legendFormat": "Predicted",
+          "expr": "gateway_predicted_tokens_summary{quantile=\"0.5\"}",
+          "legendFormat": "Predicted (p50)",
           "instant": true,
           "refId": "A"
         },
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "sum(gateway_tokens_used_total) / sum(gateway_tier_distribution_total)",
-          "legendFormat": "Actual",
+          "legendFormat": "Actual (avg)",
           "instant": true,
           "refId": "B"
         }
@@ -427,7 +425,7 @@
       "id": 9,
       "type": "stat",
       "title": "5. Shared token pool",
-      "description": "Demonstrates Dynamic Budget Sharing (DBS).",
+      "description": "Demonstrates Dynamic Budget Sharing (DBS). Available = current pool, Donated = total donated, Borrowed = total borrowed.",
       "gridPos": { "x": 0, "y": 29, "w": 24, "h": 6 },
       "options": {
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
@@ -435,8 +433,7 @@
         "textMode": "value_and_name",
         "colorMode": "value",
         "graphMode": "none",
-        "justifyMode": "center",
-        "text": {}
+        "justifyMode": "center"
       },
       "fieldConfig": {
         "defaults": {
@@ -447,28 +444,29 @@
           },
           "mappings": [],
           "unit": "short",
-          "decimals": 0
+          "decimals": 0,
+          "noValue": "0"
         },
         "overrides": []
       },
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "gateway_pool_size_tokens or vector(0)",
+          "expr": "gateway_pool_size_tokens",
           "legendFormat": "Available",
           "instant": true,
           "refId": "A"
         },
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(gateway_pool_donated_tokens_total) or vector(0)",
+          "expr": "sum(gateway_pool_donated_tokens_total)",
           "legendFormat": "Donated",
           "instant": true,
           "refId": "B"
         },
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(gateway_pool_borrowed_tokens_total) or vector(0)",
+          "expr": "sum(gateway_pool_borrowed_tokens_total)",
           "legendFormat": "Borrowed",
           "instant": true,
           "refId": "C"
@@ -486,6 +484,6 @@
   "timezone": "browser",
   "title": "Cost-Aware Multi-Agent Orchestration",
   "uid": "opaca-cost-gateway",
-  "version": 1,
+  "version": 2,
   "weekStart": ""
 }
