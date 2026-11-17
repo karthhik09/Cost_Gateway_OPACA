@@ -59,7 +59,9 @@ public class PromptComplexityAnalyzer {
             "translate", "convert", "define", "summarise", "summarize",
             "list", "show", "echo", "repeat", "format", "count",
             "lookup", "find", "get", "fetch", "retrieve", "ping",
-            "hello", "greet", "date", "time", "spell", "word"
+            "hello", "greet", "date", "time", "spell", "word",
+            // arithmetic / factual questions
+            "what", "who", "when", "where", "calculate", "compute", "chat"
     );
 
     private static final Set<String> COMPLEX_KEYWORDS = Set.of(
