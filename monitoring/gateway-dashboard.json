@@ -242,8 +242,9 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(increase(gateway_tokens_used_total[1m]))",
-          "legendFormat": "Tokens / min",
+          "expr": "sum(rate(gateway_tokens_used_total[2m])) * 120",
+          "legendFormat": "Tokens / 2 min",
+          "instant": false,
           "refId": "A"
         }
       ],
@@ -356,31 +357,40 @@
 
     {
       "id": 8,
-      "type": "barchart",
+      "type": "timeseries",
       "title": "6. Predicted vs actual token consumption",
-      "description": "Demonstrates Predictive Token Costing (PTC) and prediction accuracy.",
+      "description": "Demonstrates Predictive Token Costing (PTC) and prediction accuracy. Blue = predicted (p50), Green = actual average per request.",
       "gridPos": { "x": 12, "y": 19, "w": 12, "h": 10 },
       "options": {
-        "barWidth": 0.4,
-        "groupWidth": 0.75,
-        "fillOpacity": 80,
-        "gradientMode": "none",
-        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
-        "orientation": "auto",
-        "showValue": "auto",
-        "stacking": "none",
         "tooltip": { "mode": "multi", "sort": "none" },
-        "xTickLabelRotation": 0,
-        "xTickLabelSpacing": 80
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "fillOpacity": 15,
+        "gradientMode": "none",
+        "lineWidth": 2,
+        "pointSize": 6,
+        "showPoints": "always",
+        "spanNulls": false
       },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
           "custom": {
-            "fillOpacity": 80,
+            "lineWidth": 2,
+            "fillOpacity": 15,
             "gradientMode": "none",
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "tokens",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
             "hideFrom": { "legend": false, "tooltip": false, "viz": false },
-            "lineWidth": 1
+            "lineInterpolation": "stepAfter",
+            "pointSize": 6,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "always",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
           },
           "mappings": [],
           "thresholds": {
@@ -393,11 +403,11 @@
         },
         "overrides": [
           {
-            "matcher": { "id": "byName", "options": "Predicted (p50)" },
+            "matcher": { "id": "byName", "options": "Predicted p50" },
             "properties": [{ "id": "color", "value": { "fixedColor": "#1F60C4", "mode": "fixed" } }]
           },
           {
-            "matcher": { "id": "byName", "options": "Actual (avg)" },
+            "matcher": { "id": "byName", "options": "Actual avg/req" },
             "properties": [{ "id": "color", "value": { "fixedColor": "#37872D", "mode": "fixed" } }]
           }
         ]
@@ -406,15 +416,15 @@
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "gateway_predicted_tokens_summary{quantile=\"0.5\"}",
-          "legendFormat": "Predicted (p50)",
-          "instant": true,
+          "legendFormat": "Predicted p50",
+          "instant": false,
           "refId": "A"
         },
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "sum(gateway_tokens_used_total) / sum(gateway_tier_distribution_total)",
-          "legendFormat": "Actual (avg)",
-          "instant": true,
+          "legendFormat": "Actual avg/req",
+          "instant": false,
           "refId": "B"
         }
       ],
