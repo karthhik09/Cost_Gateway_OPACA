@@ -402,7 +402,7 @@
         },
         "overrides": [
           {
-            "matcher": { "id": "byName", "options": "Predicted p50" },
+            "matcher": { "id": "byName", "options": "Predicted avg" },
             "properties": [{ "id": "color", "value": { "fixedColor": "#1F60C4", "mode": "fixed" } }]
           },
           {

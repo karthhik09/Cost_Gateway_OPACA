@@ -63,10 +63,14 @@ public class TokenCostPredictor {
     private static final double SAFETY_FACTOR = 1.25;
 
     /**
-     * Expected completion-to-prompt token ratio. Empirically, models produce
-     * roughly 0.6× the prompt tokens in the completion for typical tasks.
+     * Expected completion-to-prompt token ratio. Empirically, conversational
+     * LLMs (Groq gpt-oss-20b, Gemini flash) produce roughly 1.5× the prompt
+     * tokens in the completion for typical multi-agent tasks — the model tends
+     * to generate full explanations even for short prompts. The original 0.6×
+     * figure (OpenAI code-completion benchmark) under-predicts significantly
+     * for chat-style actions.
      */
-    private static final double COMPLETION_RATIO = 0.60;
+    private static final double COMPLETION_RATIO = 1.50;
 
     /**
      * Minimum predicted tokens floor — even a one-word request incurs
