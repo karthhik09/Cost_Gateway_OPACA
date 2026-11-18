@@ -139,8 +139,7 @@
           "instant": true,
           "refId": "A"
         }
-      ],
-      "datasource": { "type": "prometheus", "uid": "prometheus" }
+      ],      "datasource": { "type": "prometheus", "uid": "prometheus" }
     },
 
     {
@@ -415,8 +414,8 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "gateway_predicted_tokens_summary{quantile=\"0.5\"}",
-          "legendFormat": "Predicted p50",
+          "expr": "gateway_predicted_tokens_summary_tokens_sum / gateway_predicted_tokens_summary_tokens_count",
+          "legendFormat": "Predicted avg",
           "instant": false,
           "refId": "A"
         },
